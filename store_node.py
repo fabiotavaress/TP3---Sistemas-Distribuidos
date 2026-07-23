@@ -186,11 +186,17 @@ def _replication_targets():
             if now - last_seen.get(pid, 0) <= RECENT_WINDOW]
 
 def _adopt_view(msg):
-    """Regra de adocao de visao: EPOCA MAIOR SEMPRE VENCE.
-    Resolve qualquer conflito de 'quem e o primario' apos eleicoes."""
+    """Regra de adocao de visao:
+      1. EPOCA MAIOR SEMPRE VENCE (resolve conflitos apos eleicoes normais).
+      2. SPLIT-BRAIN de MESMA EPOCA: se dois nos se declaram primario na
+         mesma epoca (corrida de partida, quando o DNS ainda nao resolveu e
+         cada um se elegeu sozinho), o de MENOR ID vence deterministicamente
+         e o de id maior recua para BACKUP. Sem isso, epocas iguais nunca se
+         reconciliam e o cluster fica com duas coroas."""
     global epoch, primary_id
     m_epoch = msg.get('epoch', 0)
     m_primary = msg.get('primary_id')
+    m_id = msg.get('id')
     with state_lock:
         if m_epoch > epoch and m_primary is not None:
             if primary_id == MY_ID and m_primary != MY_ID:
@@ -198,6 +204,14 @@ def _adopt_view(msg):
                     f"Novo primario: {m_primary}")
             epoch = m_epoch
             primary_id = m_primary
+        elif (m_epoch == epoch and primary_id == MY_ID
+              and m_id is not None and m_id == m_primary and m_id < MY_ID):
+            # O remetente tambem se acha primario nesta epoca e tem id menor:
+            # eu recuo e re-sincronizo o estado dele.
+            log(f"Split-brain na epoca {epoch}: Store {m_id} tambem e primario. "
+                f"Meu id e maior, entao recuo para BACKUP.")
+            primary_id = m_id
+            threading.Thread(target=_resync, daemon=True).start()
 
 # ----------------------------------------------------------------------------
 # PING / Deteccao de falha / Eleicao
@@ -219,6 +233,14 @@ def _election_check():
             return  # primario atual segue vivo: nada a fazer (lideranca "sticky")
         if syncing:
             return  # eu ainda nao tenho estado valido; nao posso reivindicar
+        # PREVENCAO DE SPLIT-BRAIN NA PARTIDA: se ainda existe peer que EU
+        # nunca contatei (last_seen == 0) e estamos nos primeiros segundos,
+        # espero - senao cada no sobe achando que esta sozinho e se auto-elege
+        # na mesma epoca (duas coroas). Passada a janela, sigo em frente para
+        # nao travar a disponibilidade caso um peer esteja realmente morto.
+        never_seen = any(last_seen.get(pid, 0) == 0 for pid in OTHERS)
+        if never_seen and (time.time() - started_at) < 15:
+            return
         new_primary = candidates[0]
         if new_primary == MY_ID:
             old = primary_id
