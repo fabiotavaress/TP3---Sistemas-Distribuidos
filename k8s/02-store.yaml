@@ -1,0 +1,68 @@
+# ============================================================================
+# CLUSTER STORE - StatefulSet com 3 replicas.
+#
+# Por que StatefulSet (e nao Deployment)?
+#   - Cada replica ganha uma IDENTIDADE ESTAVEL: store-0, store-1, store-2.
+#     O codigo deriva o ID do protocolo do hostname (store-0 => ID 1).
+#   - O Service "headless" cria DNS individual por pod
+#     (store-0.store, store-1.store, ...), permitindo que os nos conversem
+#     diretamente entre si (PING, REPLICATE, SNAPSHOT) sem load balancer.
+#
+# Tolerancia a falhas com o k8s:
+#   - Falha por QUEDA: o processo morre (botao Crash ou `kubectl delete pod`)
+#     e o k8s recria o pod AUTOMATICAMENTE; ao subir, o no re-sincroniza o
+#     estado via snapshot e volta como BACKUP.
+#   - Falha por OMISSAO: o processo continua vivo mas "mudo"; o /health
+#     continua respondendo de proposito, para que a deteccao seja feita
+#     pelo PROTOCOLO (timeout de PING), como pede a proposta.
+# ============================================================================
+apiVersion: v1
+kind: Service
+metadata:
+  name: store
+  namespace: tp3
+spec:
+  clusterIP: None        # headless: DNS por pod
+  selector: { app: store }
+  ports:
+    - port: 6000
+      targetPort: 6000
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: store
+  namespace: tp3
+spec:
+  serviceName: store
+  replicas: 3
+  podManagementPolicy: Parallel     # os 3 sobem juntos e fazem a 1a eleicao
+  selector:
+    matchLabels: { app: store }
+  template:
+    metadata:
+      labels: { app: store }
+    spec:
+      containers:
+        - name: store
+          image: tp3-app:latest
+          imagePullPolicy: IfNotPresent   # imagem construida localmente
+          command: ["python", "store_node.py"]
+          ports:
+            - containerPort: 6000
+          env:
+            - name: STORE_NODES
+              value: "store-0.store:6000,store-1.store:6000,store-2.store:6000"
+            - name: PORT
+              value: "6000"
+            - name: DASHBOARD_URL
+              value: "http://dashboard:5000"
+            - name: RESOURCES
+              value: "R1,R2,R3,R4,R5"
+          livenessProbe:
+            httpGet: { path: /health, port: 6000 }
+            initialDelaySeconds: 5
+            periodSeconds: 5
+          resources:
+            requests: { cpu: 50m, memory: 64Mi }
+            limits: { memory: 256Mi }

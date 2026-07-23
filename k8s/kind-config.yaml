@@ -1,0 +1,12 @@
+# Configuracao do cluster kind (Kubernetes in Docker) para rodar o TP3 local.
+# Os extraPortMappings expoem os NodePorts no localhost do host.
+kind: Cluster
+apiVersion: kind.x-k8s.io/v1alpha4
+name: tp3
+nodes:
+  - role: control-plane
+    extraPortMappings:
+      - containerPort: 30500   # dashboard
+        hostPort: 30500
+      - containerPort: 31672   # rabbitmq management (opcional)
+        hostPort: 31672

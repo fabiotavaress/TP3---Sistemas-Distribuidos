@@ -1,0 +1,5 @@
+# Namespace isolado para todo o TP3
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: tp3

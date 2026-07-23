@@ -1,0 +1,48 @@
+# ============================================================================
+# CLIENTES - StatefulSet com 5 replicas (client-0..client-4 => C1..C5).
+# Cada cliente conhece APENAS o seu no do Cluster Sync (requisito TP2)
+# e sorteia um RECURSO (R1..R5) a cada requisicao (requisito TP3).
+# ============================================================================
+apiVersion: v1
+kind: Service
+metadata:
+  name: client
+  namespace: tp3
+spec:
+  clusterIP: None
+  selector: { app: client }
+  ports:
+    - port: 9999    # porta ficticia: cliente nao expoe servico
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: client
+  namespace: tp3
+spec:
+  serviceName: client
+  replicas: 5
+  podManagementPolicy: Parallel
+  selector:
+    matchLabels: { app: client }
+  template:
+    metadata:
+      labels: { app: client }
+    spec:
+      containers:
+        - name: client
+          image: tp3-app:latest
+          imagePullPolicy: IfNotPresent
+          command: ["python", "client.py"]
+          env:
+            - name: RABBITMQ_HOST
+              value: "rabbitmq"
+            - name: RESOURCES
+              value: "R1,R2,R3,R4,R5"
+            - name: CLIENT_LOOP
+              value: "1"
+            # CLIENT_ID e NODE_ID sao derivados do hostname do pod:
+            # client-0 => C1 ligado ao Sync 1, client-1 => C2/Sync 2, ...
+          resources:
+            requests: { cpu: 25m, memory: 48Mi }
+            limits: { memory: 128Mi }

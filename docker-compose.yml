@@ -1,0 +1,203 @@
+# ============================================================================
+# TP3 - Stack completo em Docker Compose
+#   1x RabbitMQ (heranca do TP2: multicast ordenado do Cluster Sync)
+#   3x Cluster Store (replicacao primario-backup, HTTP puro)
+#   5x Cluster Sync  (exclusao mutua Alternativa 3)
+#   5x Clientes      (recurso ALEATORIO a cada requisicao)
+#   1x Dashboard     (http://localhost:5000)
+#
+# Suba tudo com:  docker compose up -d --build
+# IMPORTANTE: 'restart: always' nos stores e o que permite demonstrar a
+# RECUPERACAO automatica apos a falha por queda (botao "Crash" do painel).
+# ============================================================================
+
+x-app-image: &app-image
+  build: .
+  image: tp3-app:latest
+
+x-store-env: &store-env
+  STORE_NODES: "store-1:6000,store-2:6000,store-3:6000"
+  PORT: "6000"
+  DASHBOARD_URL: "http://dashboard:5000"
+  RESOURCES: "R1,R2,R3,R4,R5"
+
+x-sync-env: &sync-env
+  RABBITMQ_HOST: rabbitmq
+  STORE_NODES: "store-1:6000,store-2:6000,store-3:6000"
+  RESOURCES: "R1,R2,R3,R4,R5"
+  AUTO_START: "1"
+
+x-client-env: &client-env
+  RABBITMQ_HOST: rabbitmq
+  RESOURCES: "R1,R2,R3,R4,R5"
+  CLIENT_LOOP: "1"
+
+services:
+  # --------------------------- Broker (TP2) ---------------------------
+  rabbitmq:
+    image: rabbitmq:3.13-management
+    hostname: rabbitmq
+    environment:
+      RABBITMQ_DEFAULT_USER: admin
+      RABBITMQ_DEFAULT_PASS: admin123
+    ports:
+      - "5672:5672"
+      - "15672:15672"
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  # ------------------------- Cluster Store (3) -------------------------
+  store-1:
+    <<: *app-image
+    command: python store_node.py
+    environment:
+      <<: *store-env
+      MY_ID: "1"
+    restart: always
+
+  store-2:
+    image: tp3-app:latest
+    command: python store_node.py
+    environment:
+      <<: *store-env
+      MY_ID: "2"
+    restart: always
+    depends_on: [store-1]
+
+  store-3:
+    image: tp3-app:latest
+    command: python store_node.py
+    environment:
+      <<: *store-env
+      MY_ID: "3"
+    restart: always
+    depends_on: [store-1]
+
+  # ------------------------- Cluster Sync (5) --------------------------
+  sync-1:
+    image: tp3-app:latest
+    command: python sync_node.py
+    environment:
+      <<: *sync-env
+      NODE_ID: "1"
+    restart: always
+    depends_on:
+      rabbitmq: { condition: service_healthy }
+
+  sync-2:
+    image: tp3-app:latest
+    command: python sync_node.py
+    environment:
+      <<: *sync-env
+      NODE_ID: "2"
+    restart: always
+    depends_on:
+      rabbitmq: { condition: service_healthy }
+
+  sync-3:
+    image: tp3-app:latest
+    command: python sync_node.py
+    environment:
+      <<: *sync-env
+      NODE_ID: "3"
+    restart: always
+    depends_on:
+      rabbitmq: { condition: service_healthy }
+
+  sync-4:
+    image: tp3-app:latest
+    command: python sync_node.py
+    environment:
+      <<: *sync-env
+      NODE_ID: "4"
+    restart: always
+    depends_on:
+      rabbitmq: { condition: service_healthy }
+
+  sync-5:
+    image: tp3-app:latest
+    command: python sync_node.py
+    environment:
+      <<: *sync-env
+      NODE_ID: "5"
+    restart: always
+    depends_on:
+      rabbitmq: { condition: service_healthy }
+
+  # --------------------------- Clientes (5) ----------------------------
+  client-1:
+    image: tp3-app:latest
+    command: python client.py
+    environment:
+      <<: *client-env
+      CLIENT_ID: "C1"
+      NODE_ID: "1"
+    restart: always
+    depends_on:
+      rabbitmq: { condition: service_healthy }
+      sync-1: { condition: service_started }
+
+  client-2:
+    image: tp3-app:latest
+    command: python client.py
+    environment:
+      <<: *client-env
+      CLIENT_ID: "C2"
+      NODE_ID: "2"
+    restart: always
+    depends_on:
+      rabbitmq: { condition: service_healthy }
+      sync-2: { condition: service_started }
+
+  client-3:
+    image: tp3-app:latest
+    command: python client.py
+    environment:
+      <<: *client-env
+      CLIENT_ID: "C3"
+      NODE_ID: "3"
+    restart: always
+    depends_on:
+      rabbitmq: { condition: service_healthy }
+      sync-3: { condition: service_started }
+
+  client-4:
+    image: tp3-app:latest
+    command: python client.py
+    environment:
+      <<: *client-env
+      CLIENT_ID: "C4"
+      NODE_ID: "4"
+    restart: always
+    depends_on:
+      rabbitmq: { condition: service_healthy }
+      sync-4: { condition: service_started }
+
+  client-5:
+    image: tp3-app:latest
+    command: python client.py
+    environment:
+      <<: *client-env
+      CLIENT_ID: "C5"
+      NODE_ID: "5"
+    restart: always
+    depends_on:
+      rabbitmq: { condition: service_healthy }
+      sync-5: { condition: service_started }
+
+  # ---------------------------- Dashboard ------------------------------
+  dashboard:
+    image: tp3-app:latest
+    command: python dashboard.py
+    environment:
+      RABBITMQ_HOST: rabbitmq
+      STORE_NODES: "store-1:6000,store-2:6000,store-3:6000"
+      RESOURCES: "R1,R2,R3,R4,R5"
+    ports:
+      - "5000:5000"
+    restart: always
+    depends_on:
+      rabbitmq: { condition: service_healthy }

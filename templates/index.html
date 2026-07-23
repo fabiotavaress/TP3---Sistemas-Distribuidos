@@ -1,0 +1,842 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Cluster Sync + Cluster Store - TP03</title>
+<style>
+  /* ================= ESTÉTICA HERDADA DO TP2 (tema claro) ================= */
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    background-color: #ffffff; color: #1e293b;
+    font-family: 'Inter', 'Segoe UI', system-ui, sans-serif;
+    height: 100vh; display: flex; flex-direction: column; overflow: hidden;
+  }
+
+  /* ===================== HEADER ===================== */
+  header {
+    padding: 0.9rem 2rem; border-bottom: 1px solid #e2e8f0;
+    display: flex; justify-content: space-between; align-items: center;
+    background-color: #f8fafc; gap: 1rem; flex-wrap: wrap;
+  }
+  header h1 { font-size: 1.35rem; font-weight: 700; color: #1e293b; }
+  header p.sub { font-size: 0.82rem; color: #64748b; font-weight: 500; }
+  .chips { display: flex; gap: 8px; flex-wrap: wrap; }
+  .chip {
+    background: #ffffff; border: 1px solid #e2e8f0; border-radius: 999px;
+    padding: 4px 12px; font-size: .74rem; color: #64748b; white-space: nowrap;
+    font-weight: 600;
+  }
+  .chip b { color: #0f172a; font-variant-numeric: tabular-nums; }
+  .chip.primary { border-color: #fcd34d; background: #fffbeb; }
+  .chip.primary b { color: #b45309; }
+  .live {
+    display: flex; align-items: center; font-size: .8rem; font-weight: 600;
+    color: #059669; background: #ecfdf5; padding: 6px 14px;
+    border-radius: 999px; border: 1px solid #a7f3d0;
+  }
+  .live .dot { position: relative; display: flex; height: 8px; width: 8px; margin-right: 8px; }
+  .live .dot::before {
+    content: ''; position: absolute; inset: 0; border-radius: 50%;
+    background: #34d399; opacity: .75; animation: ping 1.6s cubic-bezier(0,0,.2,1) infinite;
+  }
+  .live .dot::after { content: ''; position: relative; border-radius: 50%;
+    height: 8px; width: 8px; background: #10b981; }
+  .live.off { color: #dc2626; background: #fef2f2; border-color: #fecaca; }
+  .live.off .dot::before { animation: none; background: #ef4444; }
+  .live.off .dot::after { background: #ef4444; }
+  @keyframes ping { 75%, 100% { transform: scale(2.2); opacity: 0; } }
+
+  /* ===================== LAYOUT ===================== */
+  .main { display: flex; flex: 1; min-height: 0; }
+  .col-left { width: 305px; min-width: 250px; border-right: 2px solid #1e293b;
+    display: flex; flex-direction: column; background: #f8fafc; }
+  .col-center { flex: 1; display: flex; flex-direction: column; min-width: 0; }
+  .col-right { width: 335px; min-width: 300px; border-left: 2px solid #1e293b;
+    display: flex; flex-direction: column; background: #f8fafc; overflow-y: auto; }
+
+  .sec-title {
+    padding: 9px 14px; font-size: .72rem; font-weight: 700; letter-spacing: .1em;
+    text-transform: uppercase; color: #334155;
+    border-bottom: 1px solid #e2e8f0; background: #ffffff;
+    display: flex; justify-content: space-between; align-items: center;
+    flex-shrink: 0;
+  }
+  .sec-title small { font-weight: 500; text-transform: none; letter-spacing: 0; color: #94a3b8; }
+
+  /* ===================== LEGENDA (igual TP2) ===================== */
+  .legend-container {
+    padding: 1rem 0.5rem; display: flex; flex-direction: row; justify-content: center;
+    flex-wrap: wrap; gap: 1rem; border-bottom: 1px solid #e2e8f0; background: #ffffff;
+  }
+  .legend-item { display: flex; flex-direction: column; align-items: center;
+    font-size: 0.72rem; font-weight: 600; color: #0f172a; gap: 0.4rem; text-align: center; }
+  .shape-resource { width: 30px; height: 30px; background-color: #fde047;
+    border: 2px solid #ca8a04; border-radius: 5px;
+    clip-path: polygon(50% 0%, 100% 25%, 100% 75%, 50% 100%, 0% 75%, 0% 25%); }
+  .shape-node { width: 30px; height: 19px; background-color: #7dd3fc;
+    border: 2px solid #0284c7; border-radius: 3px; }
+  .shape-client { width: 24px; height: 24px; border-radius: 50%;
+    background-color: #d8b4fe; border: 2px solid #7e22ce; }
+
+  /* ============ TERMINAL DE EVENTOS (painel escuro, igual TP2) ============ */
+  .log-wrap { flex: 1.4; display: flex; flex-direction: column; min-height: 0; padding: 10px; }
+  #log {
+    flex: 1; background: #0f172a; border-radius: 6px; padding: 10px;
+    overflow-y: auto; font-family: Consolas, monospace; font-size: 11px;
+    color: #94a3b8; display: flex; flex-direction: column; gap: 3px; min-height: 0;
+  }
+  #log div { word-wrap: break-word; }
+  .lg-req { color: #facc15; }
+  .lg-cs { color: #4ade80; font-weight: bold; }
+  .lg-write { color: #38bdf8; }
+  .lg-ok { color: #4ade80; }
+  .lg-fail { color: #f87171; font-weight: bold; }
+  .lg-repl { color: #93c5fd; }
+  .lg-elect { color: #fde047; font-weight: bold; }
+  .lg-dead { color: #f87171; font-weight: bold; }
+  .lg-sync { color: #fbbf24; }
+  .lg-info { color: #cbd5e1; }
+
+  /* ============ FILA F (cards claros, igual "Fila Compartilhada" TP2) ============ */
+  #fila { flex: 1; overflow-y: auto; padding: 10px; display: flex;
+    flex-direction: column; gap: 6px; min-height: 0; background: #f8fafc; }
+  .fila-vazia { color: #94a3b8; font-size: .74rem; font-style: italic;
+    text-align: center; margin-top: 14px; }
+  .fila-item { display: flex; align-items: center; gap: 10px; background: #ffffff;
+    border: 1px solid #e2e8f0; border-radius: 6px; padding: 6px 9px;
+    font-size: .78rem; box-shadow: 0 1px 2px rgba(15,23,42,.05); }
+  .fila-item.head { border-color: #818cf8; box-shadow: 0 2px 8px rgba(99,102,241,.18); }
+  .fila-pos { width: 22px; height: 22px; border-radius: 50%; background: #f1f5f9;
+    border: 1px solid #cbd5e1; display: flex; align-items: center; justify-content: center;
+    font-size: .66rem; font-weight: 700; color: #64748b; flex-shrink: 0; }
+  .fila-item.head .fila-pos { background: #e0e7ff; color: #4338ca; border-color: #a5b4fc; }
+  .fila-item b { color: #1e293b; }
+  .fila-item .dest { color: #94a3b8; font-size: .68rem; }
+  .fila-item.head .dest { color: #6366f1; }
+  .res-tag { margin-left: auto; font-size: .64rem; font-weight: 700; padding: 2px 8px;
+    border-radius: 999px; background: #eef2ff; color: #4f46e5; border: 1px solid #c7d2fe; }
+
+  /* ===================== CANVAS ===================== */
+  .canvas-wrap { flex: 1; position: relative; min-height: 0; background: #ffffff; }
+  #topo { position: absolute; inset: 0; width: 100%; height: 100%; cursor: default; }
+  .hint { position: absolute; bottom: 8px; left: 12px; font-size: .7rem; color: #64748b;
+    background: rgba(248,250,252,.92); padding: 4px 10px; border-radius: 6px;
+    border: 1px solid #e2e8f0; font-weight: 500; }
+
+  /* ===================== BOTÕES DE CENÁRIO ===================== */
+  .scenario-bar { display: flex; gap: 8px; padding: 10px 16px; border-top: 1px solid #e2e8f0;
+    background: #f8fafc; flex-wrap: wrap; align-items: center; flex-shrink: 0; }
+  .scenario-bar span.lbl { font-size: .68rem; color: #64748b; font-weight: 700;
+    text-transform: uppercase; letter-spacing: .08em; margin-right: 4px; }
+  button.scn {
+    background: #ffffff; color: #334155; border: 1px solid #cbd5e1;
+    border-radius: 8px; padding: 7px 12px; font-size: .76rem; cursor: pointer;
+    transition: all .15s; font-family: inherit; font-weight: 600;
+    box-shadow: 0 1px 2px rgba(15,23,42,.05);
+  }
+  button.scn:hover { border-color: #64748b; transform: translateY(-1px); }
+  button.scn.danger { border-color: #fecaca; color: #dc2626; }
+  button.scn.danger:hover { background: #fef2f2; border-color: #f87171; }
+  button.scn.warn { border-color: #fde68a; color: #b45309; }
+  button.scn.warn:hover { background: #fffbeb; border-color: #fbbf24; }
+  button.scn.good { border-color: #a7f3d0; color: #059669; }
+  button.scn.good:hover { background: #ecfdf5; border-color: #34d399; }
+
+  /* ===================== CARDS DO STORE ===================== */
+  .store-cards { padding: 10px; display: flex; flex-direction: column; gap: 8px; }
+  .scard { background: #ffffff; border: 1px solid #e2e8f0; border-radius: 10px;
+    padding: 10px 12px; transition: border-color .3s;
+    box-shadow: 0 1px 2px rgba(15,23,42,.05); }
+  .scard.primario { border-color: #fbbf24; box-shadow: 0 2px 10px rgba(217,119,6,.14); }
+  .scard.morto { border-color: #fca5a5; background: #fef2f2; }
+  .scard.omissao { border-color: #fca5a5; border-style: dashed; background: #fff7f7; }
+  .scard.sincronizando { border-color: #fcd34d; background: #fffdf5; }
+  .scard-head { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
+  .scard-head .nome { font-weight: 700; font-size: .85rem; color: #1e293b; }
+  .badge { font-size: .6rem; font-weight: 800; letter-spacing: .08em; padding: 2px 8px;
+    border-radius: 999px; text-transform: uppercase; }
+  .b-primario { background: #fef3c7; color: #b45309; border: 1px solid #fcd34d; }
+  .b-backup { background: #e0f2fe; color: #0369a1; border: 1px solid #7dd3fc; }
+  .b-morto { background: #fee2e2; color: #b91c1c; border: 1px solid #fca5a5; }
+  .b-omissao { background: #fff1f2; color: #be123c; border: 1px dashed #fda4af; }
+  .b-sinc { background: #fef9c3; color: #a16207; border: 1px solid #fde047; }
+  .scard-info { display: grid; grid-template-columns: 1fr 1fr; gap: 2px 10px;
+    font-size: .68rem; color: #64748b; margin-bottom: 8px; }
+  .scard-info b { color: #0f172a; font-variant-numeric: tabular-nums; }
+  .scard-btns { display: flex; gap: 6px; }
+  .scard-btns button { flex: 1; font-size: .66rem; padding: 4px 6px; border-radius: 6px;
+    cursor: pointer; border: 1px solid #cbd5e1; background: #ffffff;
+    color: #64748b; font-family: inherit; font-weight: 600; transition: all .15s; }
+  .scard-btns button:hover { color: #1e293b; border-color: #94a3b8; }
+  .scard-btns button.kill:hover { color: #dc2626; border-color: #fca5a5; background: #fef2f2; }
+  .scard-btns button.rev:hover { color: #059669; border-color: #6ee7b7; background: #ecfdf5; }
+
+  /* ===================== GRADE DE CONSISTÊNCIA ===================== */
+  .grid-wrap { padding: 10px 12px; }
+  table.cons { width: 100%; border-collapse: collapse; font-size: .72rem; }
+  table.cons th { color: #64748b; font-weight: 700; padding: 4px; font-size: .64rem;
+    text-transform: uppercase; letter-spacing: .05em; }
+  table.cons td { text-align: center; padding: 5px 4px; border: 1px solid #e2e8f0;
+    font-variant-numeric: tabular-nums; background: #ffffff; }
+  td.c-ok { background: #ecfdf5; color: #065f46; }
+  td.c-div { background: #fef2f2; color: #b91c1c; font-weight: 700; }
+  td.c-down { background: #f8fafc; color: #cbd5e1; }
+  td.c-sync { background: #fffbeb; color: #b45309; }
+  td.rname { font-weight: 700; color: #1e293b; border: none; background: none; }
+  .cons-banner { margin-top: 9px; text-align: center; font-size: .72rem; font-weight: 700;
+    padding: 7px; border-radius: 8px; letter-spacing: .03em; }
+  .cons-banner.ok { background: #ecfdf5; color: #059669; border: 1px solid #a7f3d0; }
+  .cons-banner.nok { background: #fffbeb; color: #b45309; border: 1px solid #fde68a; }
+
+  /* ===================== LEGENDA DAS ANIMAÇÕES ===================== */
+  details.leg { padding: 8px 14px 14px; font-size: .72rem; color: #475569; }
+  details.leg summary { cursor: pointer; font-weight: 700; text-transform: uppercase;
+    font-size: .66rem; letter-spacing: .08em; padding: 6px 0; color: #334155; }
+  .leg-row { display: flex; align-items: center; gap: 8px; padding: 2px 0; }
+  .leg-dot { width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0;
+    border: 1.5px solid #1e293b; }
+
+  ::-webkit-scrollbar { width: 8px; }
+  ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 4px; }
+
+  @media (max-width: 1100px) {
+    .main { flex-direction: column; overflow-y: auto; }
+    .col-left, .col-right { width: 100%; border: none; border-top: 2px solid #1e293b; }
+    .canvas-wrap { min-height: 430px; }
+    #log { max-height: 190px; }
+    header { flex-direction: column; text-align: center; }
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <div>
+    <h1>Mapa Topológico — Cluster Sync + Cluster Store</h1>
+    <p class="sub">Monitoramento em Tempo Real do TP03 · Replicação Primário-Backup · Tolerância a Falhas</p>
+  </div>
+  <div class="chips">
+    <div class="chip">Escritas <b id="chip-commits">0</b></div>
+    <div class="chip primary">Primário <b id="chip-primary">—</b></div>
+    <div class="chip">Época <b id="chip-epoch">0</b></div>
+    <div class="chip">Eleições <b id="chip-elections">0</b></div>
+    <div class="chip">Retentativas <b id="chip-retries">0</b></div>
+  </div>
+  <div class="live" id="live"><span class="dot"></span> Conectado ao Broker</div>
+</header>
+
+<div class="main">
+
+  <!-- ============ COLUNA ESQUERDA: LEGENDA + LOG + FILA ============ -->
+  <div class="col-left">
+    <div class="legend-container">
+      <div class="legend-item"><div class="shape-resource"></div><span>Réplica R<br>(Store)</span></div>
+      <div class="legend-item"><div class="shape-node"></div><span>Nó Sync<br>(Fila F)</span></div>
+      <div class="legend-item"><div class="shape-client"></div><span>Cliente<br>(Clique-me)</span></div>
+    </div>
+    <div class="log-wrap">
+      <div class="sec-title" style="border:none;background:none;padding:0 0 8px 0;">Terminal de Eventos
+        <small>protocolo ao vivo</small></div>
+      <div id="log"></div>
+    </div>
+    <div class="sec-title">Fila F — aguardando a Seção Crítica</div>
+    <div id="fila"><div class="fila-vazia">Fila vazia</div></div>
+  </div>
+
+  <!-- ============ CENTRO: TOPOLOGIA ============ -->
+  <div class="col-center">
+    <div class="canvas-wrap">
+      <canvas id="topo"></canvas>
+      <div class="hint">💡 Clique em um <b>cliente</b> (bolinha roxa) para injetar um pedido — o recurso é sorteado!</div>
+    </div>
+    <div class="scenario-bar">
+      <span class="lbl">Cenários de falha:</span>
+      <button class="scn danger" onclick="matarPrimario()">💥 Derrubar o PRIMÁRIO (caso 2.3)</button>
+      <button class="scn danger" onclick="matarBackup()">💥 Derrubar um BACKUP (caso 2.1)</button>
+      <button class="scn warn" onclick="omissaoPrimario()">🔇 Omissão no PRIMÁRIO por 15s (caso 2.2)</button>
+      <button class="scn good" onclick="reviverTodos()">❤️ Reviver todos</button>
+      <button class="scn" onclick="rajada()">⚡ Rajada de 5 pedidos</button>
+    </div>
+  </div>
+
+  <!-- ============ COLUNA DIREITA: CLUSTER STORE ============ -->
+  <div class="col-right">
+    <div class="sec-title">Cluster Store — 3 réplicas</div>
+    <div class="store-cards" id="store-cards"></div>
+    <div class="sec-title">Grade de consistência <small>versão · valor</small></div>
+    <div class="grid-wrap">
+      <table class="cons" id="cons-table"></table>
+      <div class="cons-banner ok" id="cons-banner">✔ RÉPLICAS CONSISTENTES</div>
+    </div>
+    <details class="leg" open>
+      <summary>Legenda das animações</summary>
+      <div class="leg-row"><div class="leg-dot" style="background:#facc15"></div> ACQUIRE — cliente pede acesso (via broker)</div>
+      <div class="leg-row"><div class="leg-dot" style="background:#0ea5e9"></div> Escrita — Sync → réplica sorteada (W1)</div>
+      <div class="leg-row"><div class="leg-dot" style="background:#6366f1"></div> Repasse ao primário (W2)</div>
+      <div class="leg-row"><div class="leg-dot" style="background:#3b82f6"></div> Replicação primário → backups (W3)</div>
+      <div class="leg-row"><div class="leg-dot" style="background:#10b981"></div> ACK dos backups / commit (W4/W5)</div>
+      <div class="leg-row"><div class="leg-dot" style="background:#a855f7"></div> COMMITTED — resposta ao cliente</div>
+      <div class="leg-row"><div class="leg-dot" style="background:#fde047"></div> 👑 = primário (eleição: menor ID vivo)</div>
+    </details>
+  </div>
+</div>
+
+<script>
+/* ========================================================================
+   ESTADO GLOBAL
+   ======================================================================== */
+const state = {
+  stores: {},          // último STORE_STATE
+  resources: ['R1','R2','R3','R4','R5'],
+  primary: null, epoch: 0,
+  commits: 0, elections: 0, retries: 0,
+  csNode: null,        // nó do Sync atualmente na seção crítica
+  filaF: [],
+  deadFlash: {},       // storeId -> timestamp do flash vermelho
+  electFlash: {},      // storeId -> timestamp do anel dourado
+  resyncFlash: {},
+};
+
+/* ========================================================================
+   LOG + FILA F
+   ======================================================================== */
+const logEl = document.getElementById('log');
+function addLog(msg, cls) {
+  const d = document.createElement('div');
+  d.className = cls || 'lg-info';
+  const t = new Date().toLocaleTimeString('pt-BR');
+  d.textContent = `> ${t} ${msg}`;
+  logEl.appendChild(d);
+  while (logEl.childElementCount > 250) logEl.removeChild(logEl.firstChild);
+  logEl.scrollTop = logEl.scrollHeight;
+}
+
+function renderFila() {
+  const el = document.getElementById('fila');
+  if (!state.filaF.length) { el.innerHTML = '<div class="fila-vazia">Fila vazia</div>'; return; }
+  el.innerHTML = state.filaF.map((it, i) => `
+    <div class="fila-item ${i===0?'head':''}">
+      <div class="fila-pos">${i+1}</div>
+      <div>Cliente <b>${it.client}</b>
+        <div class="dest">DESTINO: NÓ ${it.node}</div></div>
+      <div class="res-tag">${it.resource||'?'}</div>
+    </div>`).join('');
+}
+
+/* ========================================================================
+   CANVAS — TOPOLOGIA COM PARTÍCULAS (fundo branco, estética TP2)
+   Coordenadas virtuais 1000 x 640, escaladas para o container.
+   ======================================================================== */
+const canvas = document.getElementById('topo');
+const ctx = canvas.getContext('2d');
+let scale = 1, offX = 0, offY = 0;
+const VW = 1000, VH = 640;
+
+function resize() {
+  const r = canvas.parentElement.getBoundingClientRect();
+  canvas.width = r.width * devicePixelRatio;
+  canvas.height = r.height * devicePixelRatio;
+  scale = Math.min(r.width / VW, r.height / VH);
+  offX = (r.width - VW * scale) / 2;
+  offY = (r.height - VH * scale) / 2;
+}
+window.addEventListener('resize', resize);
+
+/* Posições virtuais */
+const posStore  = i => ({ x: 500 + (i - 2) * 230, y: 120 });          // i = 1..3
+const posSync   = i => ({ x: 140 + (i - 1) * 180, y: 358 });          // i = 1..5
+const posClient = i => ({ x: 140 + (i - 1) * 180, y: 560 });
+const BROKER = { x: 500, y: 458, w: 820, h: 34 };
+
+/* Partículas */
+let particles = [];
+function spawn(path, color, dur, size=7) {
+  if (particles.length > 60) particles.shift();
+  particles.push({ path, color, size, t0: performance.now(), dur });
+}
+
+/* Helpers de desenho */
+function rr(x, y, w, h, r) {
+  ctx.beginPath();
+  ctx.moveTo(x + r, y);
+  ctx.arcTo(x + w, y, x + w, y + h, r);
+  ctx.arcTo(x + w, y + h, x, y + h, r);
+  ctx.arcTo(x, y + h, x, y, r);
+  ctx.arcTo(x, y, x + w, y, r);
+  ctx.closePath();
+}
+
+function drawCylinder(cx, cy, w, h, fill, stroke) {
+  const ry = w * 0.16;
+  ctx.fillStyle = fill; ctx.strokeStyle = stroke; ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.ellipse(cx, cy - h/2, w/2, ry, 0, Math.PI, 0);
+  ctx.lineTo(cx + w/2, cy + h/2);
+  ctx.ellipse(cx, cy + h/2, w/2, ry, 0, 0, Math.PI);
+  ctx.lineTo(cx - w/2, cy - h/2);
+  ctx.fill(); ctx.stroke();
+  ctx.beginPath();
+  ctx.ellipse(cx, cy - h/2, w/2, ry, 0, 0, Math.PI * 2);
+  ctx.fill(); ctx.stroke();
+}
+
+let lastFrame = 0;
+function draw(now) {
+  requestAnimationFrame(draw);
+  if (now - lastFrame < 33) return;   // ~30 fps é suficiente e leve
+  lastFrame = now;
+
+  const r = canvas.parentElement.getBoundingClientRect();
+  ctx.setTransform(devicePixelRatio, 0, 0, devicePixelRatio, 0, 0);
+  ctx.clearRect(0, 0, r.width, r.height);
+  ctx.translate(offX, offY);
+  ctx.scale(scale, scale);
+
+  /* ---------- Zonas / rótulos ---------- */
+  ctx.textAlign = 'center';
+  ctx.fillStyle = '#64748b';
+  ctx.font = '700 12px Inter, Segoe UI';
+  ctx.fillText('CLUSTER STORE — réplicas do recurso R (HTTP puro, sem middleware)', 500, 30);
+  ctx.fillText('CLUSTER SYNC — exclusão mútua (Alternativa 3, herança do TP2)', 500, 310);
+
+  /* divisor HTTP */
+  ctx.strokeStyle = '#cbd5e1';
+  ctx.setLineDash([6, 8]); ctx.lineWidth = 1;
+  ctx.beginPath(); ctx.moveTo(60, 250); ctx.lineTo(940, 250); ctx.stroke();
+  ctx.setLineDash([]);
+  ctx.fillStyle = '#94a3b8'; ctx.font = 'italic 11px Inter, Segoe UI';
+  ctx.fillText('⇅ escritas HTTP com timeout + retentativa (réplica sorteada a cada acesso)', 500, 246);
+
+  /* ---------- Arestas estáticas ---------- */
+  /* malha de replicação entre stores */
+  ctx.strokeStyle = 'rgba(59,130,246,.35)'; ctx.lineWidth = 1.5; ctx.setLineDash([4,6]);
+  for (let a = 1; a <= 3; a++) for (let b = a+1; b <= 3; b++) {
+    const p1 = posStore(a), p2 = posStore(b);
+    ctx.beginPath(); ctx.moveTo(p1.x, p1.y + 12); ctx.lineTo(p2.x, p2.y + 12); ctx.stroke();
+  }
+  ctx.setLineDash([]);
+  /* cliente -> sync e sync -> broker */
+  for (let i = 1; i <= 5; i++) {
+    const s = posSync(i), c = posClient(i);
+    ctx.strokeStyle = '#94a3b8'; ctx.lineWidth = 1.5;
+    ctx.beginPath(); ctx.moveTo(c.x, c.y - 24); ctx.lineTo(s.x, s.y + 26); ctx.stroke();
+    ctx.setLineDash([3,5]); ctx.strokeStyle = '#cbd5e1';
+    ctx.beginPath(); ctx.moveTo(s.x, s.y + 26); ctx.lineTo(s.x, BROKER.y - BROKER.h/2); ctx.stroke();
+    ctx.setLineDash([]);
+  }
+
+  /* ---------- Broker (herança TP2: caixa azul-escura) ---------- */
+  rr(BROKER.x - BROKER.w/2, BROKER.y - BROKER.h/2, BROKER.w, BROKER.h, 8);
+  ctx.fillStyle = '#1e3a5f'; ctx.fill();
+  ctx.strokeStyle = '#3b82f6'; ctx.lineWidth = 2; ctx.stroke();
+  ctx.fillStyle = '#ffffff'; ctx.font = '600 12px Inter, Segoe UI';
+  ctx.fillText('⇄ RabbitMQ — Exchange Fanout "R_topic" (multicast ordenado do TP2: ACQUIRE / RELEASE)', BROKER.x, BROKER.y + 4);
+
+  /* ---------- Stores (réplicas amarelas — cor do Recurso R no TP2) ---------- */
+  for (let i = 1; i <= 3; i++) {
+    const p = posStore(i);
+    const info = state.stores[String(i)] || {};
+    const role = info.role || '...';
+    const alive = info.reachable && !info.failed;
+    const isPrim = role === 'PRIMARIO';
+    const isSync = role === 'SINCRONIZANDO';
+
+    /* flash de eleição (anel dourado que expande) */
+    const ef = state.electFlash[i];
+    if (ef && now - ef < 2000) {
+      const pr = (now - ef) / 2000;
+      ctx.beginPath();
+      ctx.arc(p.x, p.y, 45 + pr * 55, 0, Math.PI * 2);
+      ctx.strokeStyle = `rgba(202,138,4,${(1 - pr) * .8})`;
+      ctx.lineWidth = 3; ctx.stroke();
+    }
+    /* flash de resync (anel âmbar) */
+    const rf = state.resyncFlash[i];
+    if (rf && now - rf < 1500) {
+      const pr = (now - rf) / 1500;
+      ctx.beginPath(); ctx.arc(p.x, p.y, 45 + pr * 35, 0, Math.PI * 2);
+      ctx.strokeStyle = `rgba(245,158,11,${(1 - pr) * .7})`; ctx.lineWidth = 2.5; ctx.stroke();
+    }
+
+    let fill = '#fef9c3', stroke = '#ca8a04';          /* backup: amarelo claro */
+    if (isPrim) { fill = '#fde047'; stroke = '#a16207'; }  /* primário: amarelo forte */
+    if (isSync) { fill = '#fef3c7'; stroke = '#d97706'; }
+    if (!alive) { fill = '#fecaca'; stroke = '#b91c1c'; }
+
+    if (isPrim && alive) { ctx.shadowColor = 'rgba(202,138,4,.5)'; ctx.shadowBlur = 18; }
+    drawCylinder(p.x, p.y, 92, 52, fill, stroke);
+    ctx.shadowBlur = 0;
+
+    ctx.fillStyle = alive ? '#422006' : '#7f1d1d';
+    ctx.font = '700 14px Inter, Segoe UI';
+    ctx.fillText(`Store ${i}`, p.x, p.y + 4);
+    ctx.font = '11px Inter, Segoe UI';
+    ctx.fillStyle = alive ? '#854d0e' : '#991b1b';
+    ctx.fillText(`seq ${info.seq ?? '—'}`, p.x, p.y + 19);
+
+    /* coroa / caveira / status */
+    ctx.font = '20px Segoe UI';
+    if (!info.reachable) ctx.fillText('💀', p.x + 44, p.y - 32);
+    else if (info.failed) ctx.fillText('🔇', p.x + 44, p.y - 32);
+    else if (isPrim) ctx.fillText('👑', p.x + 44, p.y - 32);
+    else if (isSync) ctx.fillText('⏳', p.x + 44, p.y - 32);
+
+    /* badge do papel */
+    const btxt = !info.reachable ? 'MORTO' : (info.failed ? 'OMISSÃO' : role);
+    ctx.font = '700 10px Inter, Segoe UI';
+    const bw = ctx.measureText(btxt).width + 14;
+    rr(p.x - bw/2, p.y + 34, bw, 16, 8);
+    ctx.fillStyle = isPrim ? '#fef3c7' : (!alive ? '#fee2e2' : '#e0f2fe');
+    ctx.fill();
+    ctx.strokeStyle = isPrim ? '#f59e0b' : (!alive ? '#f87171' : '#38bdf8');
+    ctx.lineWidth = 1; ctx.stroke();
+    ctx.fillStyle = isPrim ? '#92400e' : (!alive ? '#b91c1c' : '#075985');
+    ctx.fillText(btxt, p.x, p.y + 45.5);
+
+    /* X vermelho quando detectado morto */
+    const df = state.deadFlash[i];
+    if (df && now - df < 1200) {
+      ctx.strokeStyle = `rgba(220,38,38,${1 - (now-df)/1200})`;
+      ctx.lineWidth = 4;
+      ctx.beginPath(); ctx.moveTo(p.x-30, p.y-25); ctx.lineTo(p.x+30, p.y+25);
+      ctx.moveTo(p.x+30, p.y-25); ctx.lineTo(p.x-30, p.y+25); ctx.stroke();
+    }
+  }
+
+  /* ---------- Sync nodes (caixas azuis do TP2; verde na Seção Crítica) ---------- */
+  for (let i = 1; i <= 5; i++) {
+    const p = posSync(i);
+    const inCS = state.csNode == i;
+    rr(p.x - 52, p.y - 24, 104, 48, 10);
+    if (inCS) { ctx.shadowColor = 'rgba(34,197,94,.55)'; ctx.shadowBlur = 20; }
+    ctx.fillStyle = inCS ? '#4ade80' : '#7dd3fc';
+    ctx.fill();
+    ctx.strokeStyle = inCS ? '#166534' : '#0284c7';
+    ctx.lineWidth = 2; ctx.stroke();
+    ctx.shadowBlur = 0;
+    ctx.fillStyle = inCS ? '#14532d' : '#0c4a6e';
+    ctx.font = '700 13px Inter, Segoe UI';
+    ctx.fillText(`Nó ${i}`, p.x, p.y - 1);
+    ctx.font = '10px Inter, Segoe UI';
+    ctx.fillText(inCS ? '● SEÇÃO CRÍTICA' : 'fila F privada', p.x, p.y + 14);
+  }
+
+  /* ---------- Clients (bolinhas roxas do TP2) ---------- */
+  for (let i = 1; i <= 5; i++) {
+    const p = posClient(i);
+    ctx.beginPath(); ctx.arc(p.x, p.y, 24, 0, Math.PI * 2);
+    ctx.fillStyle = '#d8b4fe'; ctx.fill();
+    ctx.strokeStyle = '#9333ea'; ctx.lineWidth = 2; ctx.stroke();
+    ctx.fillStyle = '#581c87'; ctx.font = '700 12px Inter, Segoe UI';
+    ctx.fillText(`C${i}`, p.x, p.y + 4);
+  }
+
+  /* ---------- Partículas (bolinhas com contorno escuro, igual TP2) ---------- */
+  for (let i = particles.length - 1; i >= 0; i--) {
+    const pt = particles[i];
+    const prog = (now - pt.t0) / pt.dur;
+    if (prog >= 1) { particles.splice(i, 1); continue; }
+    const segs = pt.path.length - 1;
+    const sp = prog * segs;
+    const si = Math.min(Math.floor(sp), segs - 1);
+    const lp = sp - si;
+    const a = pt.path[si], b = pt.path[si + 1];
+    const x = a.x + (b.x - a.x) * lp, y = a.y + (b.y - a.y) * lp;
+    ctx.beginPath(); ctx.arc(x, y, pt.size, 0, Math.PI * 2);
+    ctx.fillStyle = pt.color;
+    ctx.fill();
+    ctx.strokeStyle = '#1e293b'; ctx.lineWidth = 2; ctx.stroke();
+  }
+}
+
+/* Clique nos clientes */
+canvas.addEventListener('click', ev => {
+  const rect = canvas.getBoundingClientRect();
+  const x = (ev.clientX - rect.left - offX) / scale;
+  const y = (ev.clientY - rect.top - offY) / scale;
+  for (let i = 1; i <= 5; i++) {
+    const p = posClient(i);
+    if ((x-p.x)**2 + (y-p.y)**2 <= 26*26) {
+      fetch('/force_request/C' + i, { method: 'POST' });
+      return;
+    }
+  }
+});
+canvas.addEventListener('mousemove', ev => {
+  const rect = canvas.getBoundingClientRect();
+  const x = (ev.clientX - rect.left - offX) / scale;
+  const y = (ev.clientY - rect.top - offY) / scale;
+  let over = false;
+  for (let i = 1; i <= 5; i++) {
+    const p = posClient(i);
+    if ((x-p.x)**2 + (y-p.y)**2 <= 26*26) over = true;
+  }
+  canvas.style.cursor = over ? 'pointer' : 'default';
+});
+
+/* ========================================================================
+   PAINEL DO CLUSTER STORE (cards + grade de consistência)
+   ======================================================================== */
+let _lastCardsKey = '';
+function renderCards() {
+  const el = document.getElementById('store-cards');
+  /* evita reconstruir o DOM (e atrapalhar cliques) se nada mudou */
+  const key = JSON.stringify([1,2,3].map(i => {
+    const s = state.stores[String(i)] || {};
+    return [s.role, s.reachable, s.failed, s.syncing, s.epoch, s.seq,
+            s.uptime, s.counters];
+  }));
+  if (key === _lastCardsKey) return;
+  _lastCardsKey = key;
+  el.innerHTML = [1,2,3].map(i => {
+    const s = state.stores[String(i)] || {};
+    const role = !s.reachable ? 'MORTO' : (s.failed ? 'OMISSÃO' : (s.role || '...'));
+    const cls = role === 'PRIMARIO' ? 'primario' : role === 'MORTO' ? 'morto'
+              : role === 'OMISSÃO' ? 'omissao' : role === 'SINCRONIZANDO' ? 'sincronizando' : '';
+    const bcls = role === 'PRIMARIO' ? 'b-primario' : role === 'MORTO' ? 'b-morto'
+               : role === 'OMISSÃO' ? 'b-omissao' : role === 'SINCRONIZANDO' ? 'b-sinc' : 'b-backup';
+    const icon = role === 'PRIMARIO' ? '👑' : role === 'MORTO' ? '💀'
+               : role === 'OMISSÃO' ? '🔇' : role === 'SINCRONIZANDO' ? '⏳' : '🛡️';
+    const c = s.counters || {};
+    return `
+    <div class="scard ${cls}">
+      <div class="scard-head">
+        <span style="font-size:1rem">${icon}</span>
+        <span class="nome">Store ${i}</span>
+        <span class="badge ${bcls}">${role}</span>
+        <span style="margin-left:auto;font-size:.64rem;color:#94a3b8">época <b style="color:#1e293b">${s.epoch ?? '—'}</b></span>
+      </div>
+      <div class="scard-info">
+        <span>seq global: <b>${s.seq ?? '—'}</b></span>
+        <span>uptime: <b>${s.uptime != null ? s.uptime + 's' : '—'}</b></span>
+        <span>commits: <b>${c.writes_committed ?? 0}</b></span>
+        <span>replicações: <b>${c.replicates_applied ?? 0}</b></span>
+        <span>repasses W2: <b>${c.forwards ?? 0}</b></span>
+        <span>resyncs: <b>${c.resyncs ?? 0}</b></span>
+      </div>
+      <div class="scard-btns">
+        <button class="kill" onclick="failStore(${i})">🔇 Omissão 15s</button>
+        <button class="kill" onclick="crashStore(${i})">💥 Crash</button>
+        <button class="rev" onclick="recoverStore(${i})">❤️ Reviver</button>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+function renderGrid() {
+  const tbl = document.getElementById('cons-table');
+  const stores = [1,2,3].map(i => state.stores[String(i)] || {});
+  let html = '<tr><th></th>' + [1,2,3].map(i => {
+    const s = stores[i-1];
+    const tag = !s.reachable ? '💀' : s.failed ? '🔇' : (s.role === 'PRIMARIO' ? '👑' : '');
+    return `<th>S${i} ${tag}</th>`;
+  }).join('') + '</tr>';
+
+  for (const res of state.resources) {
+    html += `<tr><td class="rname">${res}</td>`;
+    /* versões das réplicas saudáveis, p/ detectar divergência */
+    const healthyVers = new Set();
+    for (const s of stores) {
+      if (s.reachable && !s.failed && !s.syncing) {
+        const rec = (s.resources || {})[res];
+        if (rec) healthyVers.add(rec.version + '·' + rec.value);
+      }
+    }
+    for (const s of stores) {
+      const rec = (s.resources || {})[res];
+      if (!s.reachable) { html += '<td class="c-down">✕</td>'; continue; }
+      if (s.syncing) { html += `<td class="c-sync">⏳</td>`; continue; }
+      if (!rec) { html += '<td class="c-down">—</td>'; continue; }
+      /* divergência entre réplicas saudáveis => TODAS acusam vermelho */
+      const cls = s.failed ? 'c-down' : (healthyVers.size <= 1 ? 'c-ok' : 'c-div');
+      html += `<td class="${cls}" title="escrito por ${rec.last_writer||'—'} via Sync ${rec.last_sync||'—'}">v${rec.version}·${rec.value}</td>`;
+    }
+    html += '</tr>';
+  }
+  tbl.innerHTML = html;
+}
+
+function renderBanner(snapshot) {
+  const b = document.getElementById('cons-banner');
+  if (snapshot.consistent) {
+    b.className = 'cons-banner ok';
+    b.textContent = '✔ RÉPLICAS CONSISTENTES';
+  } else {
+    b.className = 'cons-banner nok';
+    b.textContent = '⏳ REPLICAÇÃO / RECUPERAÇÃO EM ANDAMENTO';
+  }
+}
+
+/* ========================================================================
+   AÇÕES (botões)
+   ======================================================================== */
+function failStore(i) { fetch(`/store/${i}/fail`, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({duration: 15}) }); addLog(`>>> Injetando OMISSÃO no Store ${i} por 15s`, 'lg-fail'); }
+function crashStore(i) { fetch(`/store/${i}/crash`, { method:'POST' }); addLog(`>>> CRASH injetado no Store ${i} (processo morto)`, 'lg-fail'); }
+function recoverStore(i) { fetch(`/store/${i}/recover`, { method:'POST' }); addLog(`>>> Revivendo Store ${i}`, 'lg-ok'); }
+function matarPrimario() {
+  const p = state.primary;
+  if (!p) { addLog('Primário desconhecido — aguarde o próximo poll.', 'lg-info'); return; }
+  addLog(`>>> CENÁRIO 2.3: derrubando o PRIMÁRIO (Store ${p}) com permissão de escrita`, 'lg-fail');
+  crashStore(p);
+}
+function matarBackup() {
+  const cands = [1,2,3].filter(i => {
+    const s = state.stores[String(i)] || {};
+    return s.reachable && !s.failed && s.role === 'BACKUP';
+  });
+  if (!cands.length) { addLog('Nenhum backup vivo para derrubar.', 'lg-info'); return; }
+  const alvo = cands[Math.floor(Math.random() * cands.length)];
+  addLog(`>>> CENÁRIO 2.1: derrubando o BACKUP Store ${alvo}`, 'lg-fail');
+  crashStore(alvo);
+}
+function omissaoPrimario() {
+  const p = state.primary;
+  if (!p) return;
+  addLog(`>>> CENÁRIO 2.2: primário (Store ${p}) em OMISSÃO com pedidos chegando`, 'lg-fail');
+  failStore(p);
+}
+function reviverTodos() { [1,2,3].forEach(i => fetch(`/store/${i}/recover`, { method:'POST' })); addLog('>>> Revivendo todos os nós do Store', 'lg-ok'); }
+function rajada() {
+  addLog('>>> Rajada: 5 pedidos de clientes aleatórios', 'lg-req');
+  for (let k = 0; k < 5; k++) {
+    const c = 1 + Math.floor(Math.random() * 5);
+    setTimeout(() => fetch('/force_request/C' + c, { method:'POST' }), k * 250);
+  }
+}
+
+/* ========================================================================
+   SSE — RECEPÇÃO DOS EVENTOS EM TEMPO REAL
+   ======================================================================== */
+const es = new EventSource('/stream');
+const liveEl = document.getElementById('live');
+es.onopen = () => { liveEl.className = 'live'; liveEl.innerHTML = '<span class="dot"></span> Conectado ao Broker'; };
+es.onerror = () => { liveEl.className = 'live off'; liveEl.innerHTML = '<span class="dot"></span> Conexão Perdida'; };
+
+es.onmessage = ev => {
+  let d; try { d = JSON.parse(ev.data); } catch { return; }
+  const T = d.type;
+
+  /* ------- estado consolidado do Cluster Store ------- */
+  if (T === 'STORE_STATE') {
+    state.stores = d.stores || {};
+    if (d.resources) state.resources = d.resources;
+    let prim = null, ep = 0;
+    for (const [sid, s] of Object.entries(state.stores)) {
+      if (s.reachable && !s.failed && s.role === 'PRIMARIO') prim = Number(sid);
+      if (s.epoch > ep) ep = s.epoch;
+    }
+    state.primary = prim; state.epoch = ep;
+    document.getElementById('chip-primary').textContent = prim ? `Store ${prim} 👑` : '—';
+    document.getElementById('chip-epoch').textContent = ep;
+    renderCards(); renderGrid(); renderBanner(d);
+    return;
+  }
+
+  /* ------- eventos do Cluster Sync / clientes (via RabbitMQ) ------- */
+  if (T === 'CLIENT_REQ') {
+    const c = posClient(Number(d.node_id)), s = posSync(Number(d.node_id));
+    spawn([c, s, { x: s.x, y: BROKER.y }], '#facc15', 1800);
+    state.filaF.push({ client: d.client_id, node: d.node_id, resource: d.resource });
+    if (state.filaF.length > 30) state.filaF.shift();
+    renderFila();
+    addLog(`Cliente ${d.client_id} pediu escrita em ${d.resource||'?'} (ACQUIRE → Nó ${d.node_id})${d.click?' [clique]':''}`, 'lg-req');
+  }
+  else if (T === 'NODE_ENTER') {
+    state.csNode = Number(d.node_id);
+    const idx = state.filaF.findIndex(it => it.node == d.node_id);
+    if (idx !== -1) { state.filaF.splice(idx, 1); renderFila(); }
+    addLog(`Nó ${d.node_id} ENTROU na Seção Crítica (${d.resource||''})`, 'lg-cs');
+  }
+  else if (T === 'STORE_WRITE') {
+    const s = posSync(Number(d.node_id)), st = posStore(Number(d.store_id));
+    spawn([s, st], '#0ea5e9', 1000);
+    if (d.attempt > 1) {
+      state.retries++;
+      document.getElementById('chip-retries').textContent = state.retries;
+    }
+    addLog(`Nó ${d.node_id} escreve ${d.resource} no Store ${d.store_id} (sorteado)${d.attempt>1?` — tentativa ${d.attempt}`:''}`, 'lg-write');
+  }
+  else if (T === 'STORE_WRITE_FAIL') {
+    state.deadFlash[d.store_id] = performance.now();
+    addLog(`TIMEOUT do Nó ${d.node_id} no Store ${d.store_id} — retentando em outro nó!`, 'lg-fail');
+  }
+  else if (T === 'STORE_WRITE_OK') {
+    const st = posStore(Number(d.store_id)), s = posSync(Number(d.node_id));
+    spawn([st, s], '#10b981', 900);
+    addLog(`COMMIT ${d.resource}=${d.value} (seq ${d.seq}) p/ Nó ${d.node_id}${d.dedup?' [dedup: já aplicada]':''}`, 'lg-ok');
+  }
+  else if (T === 'NODE_EXIT') {
+    if (state.csNode == d.node_id) state.csNode = null;
+    const s = posSync(Number(d.node_id)), c = posClient(Number(d.node_id));
+    spawn([s, c], '#a855f7', 900);
+    /* saneamento: se o NODE_ENTER foi perdido (página aberta no meio),
+       remove o pedido correspondente da fila visual agora */
+    const idx = state.filaF.findIndex(it => it.node == d.node_id);
+    if (idx !== -1) { state.filaF.splice(idx, 1); renderFila(); }
+    addLog(`Nó ${d.node_id} liberou (RELEASE) e respondeu COMMITTED ao cliente`, 'lg-info');
+  }
+
+  /* ------- eventos do Cluster Store (via HTTP /event) ------- */
+  else if (T === 'FORWARD') {
+    const a = posStore(Number(d.store_id)), b = posStore(Number(d.to));
+    spawn([a, b], '#6366f1', 800, 6);
+    addLog(`Store ${d.store_id} não é o primário → repassa ao Store ${d.to} (W2)`, 'lg-repl');
+  }
+  else if (T === 'REPLICATE') {
+    const from = posStore(Number(d.store_id));
+    (d.to || []).forEach(t => spawn([from, posStore(Number(t))], '#3b82f6', 750, 6));
+    addLog(`Primário ${d.store_id} replica seq ${d.seq} (${d.resource}) → backups ${JSON.stringify(d.to)} (W3)`, 'lg-repl');
+  }
+  else if (T === 'REPLICATE_ACK') {
+    const from = posStore(Number(d.store_id));
+    if (d.to_primary) spawn([from, posStore(Number(d.to_primary))], '#10b981', 650, 5);
+  }
+  else if (T === 'WRITE_COMMIT') {
+    state.commits++;
+    document.getElementById('chip-commits').textContent = state.commits;
+  }
+  else if (T === 'ELECTION') {
+    state.electFlash[d.new_primary] = performance.now();
+    state.elections++;
+    document.getElementById('chip-elections').textContent = state.elections;
+    addLog(`⚡ ELEIÇÃO: Store ${d.new_primary} é o novo PRIMÁRIO (época ${d.epoch}; anterior: ${d.old_primary ?? '—'})`, 'lg-elect');
+  }
+  else if (T === 'PEER_DEAD') {
+    state.deadFlash[d.peer] = performance.now();
+    addLog(`💀 Store ${d.store_id} detectou por timeout de PING: Store ${d.peer} MORTO`, 'lg-dead');
+  }
+  else if (T === 'PEER_BACK') {
+    addLog(`Store ${d.store_id} detectou: Store ${d.peer} voltou a responder PING`, 'lg-sync');
+  }
+  else if (T === 'RESYNC') {
+    state.resyncFlash[d.store_id] = performance.now();
+    const a = posStore(Number(d.source)), b = posStore(Number(d.store_id));
+    spawn([a, b], '#f59e0b', 900, 8);
+    addLog(`⟳ Store ${d.store_id} RE-SINCRONIZADO a partir do Store ${d.source} (seq ${d.seq})`, 'lg-sync');
+  }
+  else if (T === 'STORE_FAIL') {
+    addLog(`🔇 Store ${d.store_id} entrou em FALHA POR OMISSÃO${d.duration?` (${d.duration}s)`:''}`, 'lg-dead');
+  }
+  else if (T === 'STORE_CRASH') {
+    addLog(`💥 Store ${d.store_id} sofreu QUEDA (processo encerrado)`, 'lg-dead');
+  }
+  else if (T === 'STORE_RECOVER') {
+    addLog(`❤️ Store ${d.store_id} recuperado — vai re-sincronizar o estado`, 'lg-sync');
+  }
+  else if (T === 'STORE_START') {
+    addLog(`Store ${d.store_id} iniciou`, 'lg-info');
+  }
+};
+
+/* ========================================================================
+   INICIALIZAÇÃO
+   ======================================================================== */
+resize();
+renderCards();
+renderGrid();
+requestAnimationFrame(draw);
+addLog('Dashboard TP3 pronto. Aguardando eventos...', 'lg-info');
+</script>
+</body>
+</html>

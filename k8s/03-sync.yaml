@@ -1,0 +1,48 @@
+# ============================================================================
+# CLUSTER SYNC - StatefulSet com 5 replicas (sync-0..sync-4 => IDs 1..5).
+# Cada no fala com o broker (heranca TP2) e escreve no Cluster Store via
+# HTTP puro, sorteando o no de entrada a cada secao critica.
+# ============================================================================
+apiVersion: v1
+kind: Service
+metadata:
+  name: sync
+  namespace: tp3
+spec:
+  clusterIP: None
+  selector: { app: sync }
+  ports:
+    - port: 9999    # porta ficticia: o sync nao expoe servico HTTP
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: sync
+  namespace: tp3
+spec:
+  serviceName: sync
+  replicas: 5
+  podManagementPolicy: Parallel
+  selector:
+    matchLabels: { app: sync }
+  template:
+    metadata:
+      labels: { app: sync }
+    spec:
+      containers:
+        - name: sync
+          image: tp3-app:latest
+          imagePullPolicy: IfNotPresent
+          command: ["python", "sync_node.py"]
+          env:
+            - name: RABBITMQ_HOST
+              value: "rabbitmq"
+            - name: STORE_NODES
+              value: "store-0.store:6000,store-1.store:6000,store-2.store:6000"
+            - name: RESOURCES
+              value: "R1,R2,R3,R4,R5"
+            - name: AUTO_START
+              value: "1"
+          resources:
+            requests: { cpu: 50m, memory: 64Mi }
+            limits: { memory: 256Mi }

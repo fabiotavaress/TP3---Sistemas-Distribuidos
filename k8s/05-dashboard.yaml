@@ -1,0 +1,48 @@
+# ============================================================================
+# DASHBOARD - painel web em tempo real.
+# Exposto via NodePort 30500: http://localhost:30500 (kind/Docker Desktop)
+# ou http://<IP-publico-da-EC2>:30500 na nuvem.
+# ============================================================================
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: dashboard
+  namespace: tp3
+spec:
+  replicas: 1
+  selector:
+    matchLabels: { app: dashboard }
+  template:
+    metadata:
+      labels: { app: dashboard }
+    spec:
+      containers:
+        - name: dashboard
+          image: tp3-app:latest
+          imagePullPolicy: IfNotPresent
+          command: ["python", "dashboard.py"]
+          ports:
+            - containerPort: 5000
+          env:
+            - name: RABBITMQ_HOST
+              value: "rabbitmq"
+            - name: STORE_NODES
+              value: "store-0.store:6000,store-1.store:6000,store-2.store:6000"
+            - name: RESOURCES
+              value: "R1,R2,R3,R4,R5"
+          resources:
+            requests: { cpu: 50m, memory: 64Mi }
+            limits: { memory: 256Mi }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: dashboard
+  namespace: tp3
+spec:
+  type: NodePort
+  selector: { app: dashboard }
+  ports:
+    - port: 5000
+      targetPort: 5000
+      nodePort: 30500

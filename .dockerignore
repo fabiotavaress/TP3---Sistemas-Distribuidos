@@ -1,0 +1,7 @@
+__pycache__/
+*.pyc
+k8s/
+scripts/
+README.md
+Proposta.pdf
+.git/
