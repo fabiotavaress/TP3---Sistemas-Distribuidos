@@ -13,7 +13,7 @@ docker build -t tp3-app:latest .
 
 echo "==> 2/4 Criando o cluster kind 'tp3' (se nao existir)..."
 if ! kind get clusters 2>/dev/null | grep -q '^tp3$'; then
-  kind create cluster --config k8s/kind-config.yaml
+  kind create cluster --config scripts/kind-config.yaml
 fi
 
 echo "==> 3/4 Carregando a imagem para dentro do cluster..."

@@ -1,5 +1,7 @@
 # Trabalho Prático 3 — Replicação e Tolerância a Falhas
 
+> Repositório: **https://github.com/fabiotavaress/TP3---Sistemas-Distribuidos**
+
 Continuação direta do **TP2** (exclusão mútua distribuída — Alternativa 3): agora, quando um
 nó do Cluster Sync entra na seção crítica, ele **não simula mais** o acesso ao recurso R com
 um `sleep`. Ele **escreve de verdade** em um **Cluster Store com 3 réplicas**, que implementa
@@ -183,17 +185,24 @@ cd TP3
 
 - Dashboard: **http://localhost:30500**
 
+> No Kubernetes do Docker Desktop (que roda em "modo kind"), o NodePort não aparece
+> sozinho no localhost — o script já abre um `kubectl port-forward svc/dashboard
+> 30500:5000` para você. No kind com o `kind-config.yaml` e no EC2/k3s o NodePort
+> funciona direto.
+
 ### Opção C — Nuvem (EC2 + k3s) ✨
 
 1. Lance uma EC2 **Ubuntu 22.04/24.04** (mínimo `t3.medium`).
 2. No **Security Group**, libere entrada nas portas **22**, **30500** e (opcional) **31672**.
-3. Copie a pasta e rode o script:
+3. Clone o repositório na instância e rode o script:
 
 ```bash
-scp -i sua-chave.pem -r TP3 ubuntu@<IP-PUBLICO>:~/
 ssh -i sua-chave.pem ubuntu@<IP-PUBLICO>
+git clone https://github.com/fabiotavaress/TP3---Sistemas-Distribuidos.git TP3
 cd TP3 && chmod +x scripts/*.sh && ./scripts/deploy_ec2_k3s.sh
 ```
+
+*(Alternativa sem git: `scp -i sua-chave.pem -r TP3 ubuntu@<IP-PUBLICO>:~/`)*
 
 4. Abra **http://\<IP-PUBLICO\>:30500** — a sala inteira pode acessar e clicar nos clientes.
 
@@ -274,13 +283,13 @@ TP3/
 │   ├── 02-store.yaml         # StatefulSet 3 réplicas + Service headless
 │   ├── 03-sync.yaml          # StatefulSet 5 réplicas
 │   ├── 04-clients.yaml       # StatefulSet 5 réplicas
-│   ├── 05-dashboard.yaml     # Deployment + NodePort 30500
-│   └── kind-config.yaml
+│   └── 05-dashboard.yaml     # Deployment + NodePort 30500
 └── scripts/
     ├── build_image.(ps1|sh)
     ├── deploy_docker_desktop.ps1
     ├── deploy_kind.sh
-    └── deploy_ec2_k3s.sh
+    ├── deploy_ec2_k3s.sh
+    └── kind-config.yaml
 ```
 
 **Por que StatefulSets?** Cada réplica precisa de **identidade estável** (Store 1/2/3,

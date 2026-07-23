@@ -20,7 +20,12 @@ Write-Host "`nAguardando os pods ficarem prontos..." -ForegroundColor Cyan
 kubectl -n tp3 wait --for=condition=Ready pod --all --timeout=300s
 kubectl -n tp3 get pods -o wide
 
+# No Kubernetes do Docker Desktop (modo kind) o NodePort nao aparece no
+# localhost automaticamente - fazemos um port-forward em background.
+Write-Host "`nAbrindo port-forward do dashboard (janela minimizada)..." -ForegroundColor Cyan
+Start-Process kubectl -ArgumentList "-n","tp3","port-forward","svc/dashboard","30500:5000" -WindowStyle Minimized
+
 Write-Host "`n=========================================================="
 Write-Host " Dashboard:  http://localhost:30500" -ForegroundColor Green
-Write-Host " RabbitMQ:   http://localhost:31672  (admin / admin123)"
+Write-Host " (port-forward numa janela minimizada; feche-a para encerrar)"
 Write-Host "=========================================================="

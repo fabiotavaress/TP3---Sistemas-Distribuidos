@@ -16,6 +16,7 @@ spec:
     metadata:
       labels: { app: dashboard }
     spec:
+      terminationGracePeriodSeconds: 1   # teardown rapido (python ignora SIGTERM)
       containers:
         - name: dashboard
           image: tp3-app:latest

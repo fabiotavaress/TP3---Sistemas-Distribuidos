@@ -29,6 +29,7 @@ spec:
     metadata:
       labels: { app: sync }
     spec:
+      terminationGracePeriodSeconds: 1   # teardown rapido (python ignora SIGTERM)
       containers:
         - name: sync
           image: tp3-app:latest

@@ -43,6 +43,10 @@ spec:
     metadata:
       labels: { app: store }
     spec:
+      # Morte INSTANTANEA no `kubectl delete pod` (o servidor Python nao
+      # trata SIGTERM e ficaria 30s "Terminating" ainda respondendo - com 0,
+      # a queda e seca, os PINGs estouram e da para VER a eleicao acontecer).
+      terminationGracePeriodSeconds: 0
       containers:
         - name: store
           image: tp3-app:latest
