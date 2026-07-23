@@ -284,12 +284,16 @@ TP3/
 │   ├── 03-sync.yaml          # StatefulSet 5 réplicas
 │   ├── 04-clients.yaml       # StatefulSet 5 réplicas
 │   └── 05-dashboard.yaml     # Deployment + NodePort 30500
-└── scripts/
-    ├── build_image.(ps1|sh)
-    ├── deploy_docker_desktop.ps1
-    ├── deploy_kind.sh
-    ├── deploy_ec2_k3s.sh
-    └── kind-config.yaml
+├── scripts/
+│   ├── build_image.(ps1|sh)
+│   ├── deploy_docker_desktop.ps1
+│   ├── deploy_kind.sh
+│   ├── deploy_ec2_k3s.sh
+│   └── kind-config.yaml
+├── TP03_Apresentacao.pptx    # slides da apresentação (estética do TP2)
+└── slides/                   # gerador dos slides (pptxgenjs)
+    ├── gen.js
+    └── icons.js
 ```
 
 **Por que StatefulSets?** Cada réplica precisa de **identidade estável** (Store 1/2/3,

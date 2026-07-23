@@ -348,12 +348,30 @@ const posStore  = i => ({ x: 500 + (i - 2) * 230, y: 120 });          // i = 1..
 const posSync   = i => ({ x: 140 + (i - 1) * 180, y: 358 });          // i = 1..5
 const posClient = i => ({ x: 140 + (i - 1) * 180, y: 560 });
 const BROKER = { x: 500, y: 458, w: 820, h: 34 };
+const BUS_Y = 250;   // barramento HTTP: trilho horizontal entre Sync e Store
 
-/* Partículas */
+/* Rotas ortogonais (estilo metrô): a bolinha sobe até o barramento,
+   corre por ele e sobe até o destino — nada de diagonais cruzadas. */
+function rotaSyncStore(sy, st) {           // Sync -> Store (escrita W1)
+  return [sy, { x: sy.x, y: BUS_Y }, { x: st.x, y: BUS_Y }, st];
+}
+function rotaStoreSync(st, sy) {           // Store -> Sync (resposta W5)
+  return [st, { x: st.x, y: BUS_Y }, { x: sy.x, y: BUS_Y }, sy];
+}
+
+/* Partículas — interpolação POR DISTÂNCIA (velocidade constante no
+   caminho inteiro, mesmo com trechos de tamanhos diferentes) */
 let particles = [];
 function spawn(path, color, dur, size=7) {
   if (particles.length > 60) particles.shift();
-  particles.push({ path, color, size, t0: performance.now(), dur });
+  const segLen = [];
+  let total = 0;
+  for (let i = 0; i < path.length - 1; i++) {
+    const L = Math.hypot(path[i+1].x - path[i].x, path[i+1].y - path[i].y);
+    segLen.push(L); total += L;
+  }
+  particles.push({ path, segLen, total: Math.max(total, 1), color, size,
+                   t0: performance.now(), dur });
 }
 
 /* Helpers de desenho */
@@ -400,20 +418,31 @@ function draw(now) {
   ctx.fillText('CLUSTER STORE — réplicas do recurso R (HTTP puro, sem middleware)', 500, 30);
   ctx.fillText('CLUSTER SYNC — exclusão mútua (Alternativa 3, herança do TP2)', 500, 310);
 
-  /* divisor HTTP */
-  ctx.strokeStyle = '#cbd5e1';
-  ctx.setLineDash([6, 8]); ctx.lineWidth = 1;
-  ctx.beginPath(); ctx.moveTo(60, 250); ctx.lineTo(940, 250); ctx.stroke();
-  ctx.setLineDash([]);
+  /* ---------- BARRAMENTO HTTP (trilho que as bolinhas de escrita seguem) ---------- */
+  ctx.strokeStyle = '#7dd3fc'; ctx.lineWidth = 2.5;
+  ctx.beginPath(); ctx.moveTo(120, BUS_Y); ctx.lineTo(880, BUS_Y); ctx.stroke();
   ctx.fillStyle = '#94a3b8'; ctx.font = 'italic 11px Inter, Segoe UI';
-  ctx.fillText('⇅ escritas HTTP com timeout + retentativa (réplica sorteada a cada acesso)', 500, 246);
+  ctx.fillText('⇅ barramento HTTP — escritas com timeout + retentativa (réplica sorteada a cada acesso)', 500, BUS_Y - 10);
+
+  /* trilhos verticais: Store desce até o barramento... */
+  ctx.strokeStyle = 'rgba(14,165,233,.4)'; ctx.lineWidth = 1.5;
+  for (let i = 1; i <= 3; i++) {
+    const p = posStore(i);
+    ctx.beginPath(); ctx.moveTo(p.x, p.y + 52); ctx.lineTo(p.x, BUS_Y); ctx.stroke();
+  }
+  /* ...e Sync sobe até o barramento */
+  for (let i = 1; i <= 5; i++) {
+    const p = posSync(i);
+    ctx.beginPath(); ctx.moveTo(p.x, p.y - 24); ctx.lineTo(p.x, BUS_Y); ctx.stroke();
+  }
 
   /* ---------- Arestas estáticas ---------- */
-  /* malha de replicação entre stores */
+  /* malha de replicação entre stores (centro a centro: trilho das bolinhas
+     de REPLICATE/ACK/repasse — a linha fica atrás dos cilindros) */
   ctx.strokeStyle = 'rgba(59,130,246,.35)'; ctx.lineWidth = 1.5; ctx.setLineDash([4,6]);
   for (let a = 1; a <= 3; a++) for (let b = a+1; b <= 3; b++) {
     const p1 = posStore(a), p2 = posStore(b);
-    ctx.beginPath(); ctx.moveTo(p1.x, p1.y + 12); ctx.lineTo(p2.x, p2.y + 12); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(p1.x, p1.y); ctx.lineTo(p2.x, p2.y); ctx.stroke();
   }
   ctx.setLineDash([]);
   /* cliente -> sync e sync -> broker */
@@ -537,11 +566,13 @@ function draw(now) {
     const pt = particles[i];
     const prog = (now - pt.t0) / pt.dur;
     if (prog >= 1) { particles.splice(i, 1); continue; }
-    const segs = pt.path.length - 1;
-    const sp = prog * segs;
-    const si = Math.min(Math.floor(sp), segs - 1);
-    const lp = sp - si;
+    /* anda "prog * comprimento total" ao longo dos trechos (vel. constante) */
+    let dist = prog * pt.total, si = 0;
+    while (si < pt.segLen.length - 1 && dist > pt.segLen[si]) {
+      dist -= pt.segLen[si]; si++;
+    }
     const a = pt.path[si], b = pt.path[si + 1];
+    const lp = pt.segLen[si] > 0 ? Math.min(dist / pt.segLen[si], 1) : 1;
     const x = a.x + (b.x - a.x) * lp, y = a.y + (b.y - a.y) * lp;
     ctx.beginPath(); ctx.arc(x, y, pt.size, 0, Math.PI * 2);
     ctx.fillStyle = pt.color;
@@ -750,7 +781,7 @@ es.onmessage = ev => {
   }
   else if (T === 'STORE_WRITE') {
     const s = posSync(Number(d.node_id)), st = posStore(Number(d.store_id));
-    spawn([s, st], '#0ea5e9', 1000);
+    spawn(rotaSyncStore(s, st), '#0ea5e9', 1400);
     if (d.attempt > 1) {
       state.retries++;
       document.getElementById('chip-retries').textContent = state.retries;
@@ -763,7 +794,7 @@ es.onmessage = ev => {
   }
   else if (T === 'STORE_WRITE_OK') {
     const st = posStore(Number(d.store_id)), s = posSync(Number(d.node_id));
-    spawn([st, s], '#10b981', 900);
+    spawn(rotaStoreSync(st, s), '#10b981', 1200);
     addLog(`COMMIT ${d.resource}=${d.value} (seq ${d.seq}) p/ Nó ${d.node_id}${d.dedup?' [dedup: já aplicada]':''}`, 'lg-ok');
   }
   else if (T === 'NODE_EXIT') {
