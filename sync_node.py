@@ -54,9 +54,14 @@ STORES = []   # [(id, "http://host:porta")]
 for idx, hostport in enumerate([h.strip() for h in STORE_NODES.split(',') if h.strip()]):
     STORES.append((idx + 1, f'http://{hostport}'))
 
-WRITE_TIMEOUT = float(os.environ.get('WRITE_TIMEOUT', 6.0))  # timeout por tentativa
+WRITE_TIMEOUT = float(os.environ.get('WRITE_TIMEOUT', 2.5))  # timeout por tentativa
 MAX_ATTEMPTS = int(os.environ.get('MAX_ATTEMPTS', 8))        # tentativas de escrita
-RETRY_DELAY = float(os.environ.get('RETRY_DELAY', 0.8))      # espera entre tentativas
+RETRY_DELAY = float(os.environ.get('RETRY_DELAY', 0.4))      # espera entre tentativas
+DEAD_TTL = float(os.environ.get('DEAD_TTL', 5.0))            # qto tempo evitar um Store que falhou
+
+# Stores que ESTE sync descobriu estarem mortos/omissos (id -> ate quando evitar).
+# Evita re-sortear um no caido a cada tentativa (nada de bolinha indo pro no morto).
+_dead_stores = {}
 
 # AUTO_START=1 (padrao nos containers): o no fica pronto sozinho apos alguns
 # segundos, sem esperar o START_SIMULATION do run_simulation.py do TP2.
@@ -97,6 +102,13 @@ def setup_rabbit(channel):
     # Fila para receber requisicoes dos clientes (RPC)
     rpc_queue_name = f'rpc_queue_{NODE_ID}'
     channel.queue_declare(queue=rpc_queue_name)
+    # Limpa pedidos antigos que sobraram na fila (ex.: de antes de um reset).
+    # Sem isso, apos "rollout restart" o sync reprocessa o backlog e aparecem
+    # bolinhas "do nada" depois de um tempo.
+    try:
+        channel.queue_purge(rpc_queue_name)
+    except Exception:
+        pass
     return sync_queue, rpc_queue_name
 
 def dash(channel, payload):
@@ -131,7 +143,13 @@ def access_store(channel, pedido_cliente):
     }
 
     for attempt in range(1, MAX_ATTEMPTS + 1):
-        store_id, store_url = random.choice(STORES)  # <== ESCOLHA ALEATORIA
+        # Sorteia entre os Stores que NAO estao marcados como mortos. Assim a
+        # escrita nao vai (nem anima bolinha) pra um no que ja sabemos estar
+        # caido. Se todos estiverem marcados, tenta qualquer um (o TTL expira).
+        now = time.time()
+        vivos = [(sid, url) for sid, url in STORES
+                 if _dead_stores.get(sid, 0) < now]
+        store_id, store_url = random.choice(vivos or STORES)  # ESCOLHA ALEATORIA
         dash(channel, {"type": "STORE_WRITE", "node_id": NODE_ID,
                        "store_id": store_id, "resource": resource,
                        "attempt": attempt})
@@ -142,6 +160,7 @@ def access_store(channel, pedido_cliente):
                               timeout=WRITE_TIMEOUT)
             body = r.json()
             if r.status_code == 200 and body.get('status') == 'COMMITTED':
+                _dead_stores.pop(store_id, None)  # respondeu: esta vivo
                 via = body.get('routed_via')
                 rota = f"entrou pelo {store_id}" + \
                        (f", repassada ao primario {body.get('primary_id')}"
@@ -159,11 +178,15 @@ def access_store(channel, pedido_cliente):
                                "dedup": body.get('dedup', False)})
                 return body
             # 409 IN_FLIGHT / 503 eleicao em curso / SYNCING etc: retenta
+            # (nao marca como morto - o no esta vivo, so ocupado)
             log(f"Store {store_id} nao commitou ({r.status_code} "
                 f"{body.get('error', '')}). Retentando...", Fore.YELLOW)
         except Exception as e:
+            # Timeout/conexao recusada => no morto ou em omissao: marca pra
+            # evitar nas proximas tentativas (nao insiste no no caido).
+            _dead_stores[store_id] = time.time() + DEAD_TTL
             log(f"FALHA no Store {store_id} (timeout/queda): {type(e).__name__}. "
-                f"Retentando em outro no...", Fore.RED)
+                f"Marcando como morto e indo pra outro no...", Fore.RED)
         dash(channel, {"type": "STORE_WRITE_FAIL", "node_id": NODE_ID,
                        "store_id": store_id, "attempt": attempt,
                        "resource": resource})

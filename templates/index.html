@@ -772,13 +772,19 @@ es.onmessage = ev => {
     addLog(`Nó ${d.node_id} ENTROU na Seção Crítica (${d.resource||''})`, 'lg-cs');
   }
   else if (T === 'STORE_WRITE') {
-    const s = posSync(Number(d.node_id)), st = posStore(Number(d.store_id));
-    spawn(rotaSyncStore(s, st), '#0ea5e9', 1400);
+    // Se o Store alvo esta caido (morto/omisso), NAO desenha a bolinha indo
+    // pra ele - seria confuso ver escrita chegando num no parado.
+    const alvo = state.stores[String(d.store_id)] || {};
+    const caido = !alvo.reachable || alvo.failed;
+    if (!caido) {
+      const s = posSync(Number(d.node_id)), st = posStore(Number(d.store_id));
+      spawn(rotaSyncStore(s, st), '#0ea5e9', 1400);
+      addLog(`Nó ${d.node_id} escreve ${d.resource} no Store ${d.store_id} (sorteado)${d.attempt>1?` — tentativa ${d.attempt}`:''}`, 'lg-write');
+    }
     if (d.attempt > 1) {
       state.retries++;
       document.getElementById('chip-retries').textContent = state.retries;
     }
-    addLog(`Nó ${d.node_id} escreve ${d.resource} no Store ${d.store_id} (sorteado)${d.attempt>1?` — tentativa ${d.attempt}`:''}`, 'lg-write');
   }
   else if (T === 'STORE_WRITE_FAIL') {
     state.deadFlash[d.store_id] = performance.now();
