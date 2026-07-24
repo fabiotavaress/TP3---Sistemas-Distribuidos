@@ -48,20 +48,33 @@ sudo k3s kubectl -n tp3 port-forward --address 0.0.0.0 svc/dashboard 5000:5000  
 ```
 Abrir no navegador: **http://SEU_IP_PUBLICO:5000**  *(o IP público está no console EC2)*
 
-**2. Demonstrar** (só apertando botões, na ordem)
-1. **⚡ Rajada de 5 pedidos** → mostra o fluxo normal (pedido → seção crítica → escrita na
-   réplica sorteada → replicação → COMMITTED). A grade da direita fica verde = réplicas iguais.
+**2. Mostrar que roda em Kubernetes** (no terminal)
+```bash
+sudo k3s kubectl -n tp3 get pods         # os 10 pods rodando (rabbitmq, 3 store, 5 sync, dashboard)
+sudo k3s kubectl -n tp3 get statefulset  # identidade fixa: store-0/1/2, sync-0..4
+```
+E a prova mais forte — **self-healing** (o Kubernetes recria um pod sozinho):
+```bash
+sudo k3s kubectl -n tp3 delete pod store-0
+sudo k3s kubectl -n tp3 get pods         # store-0 volta em segundos, recriado pelo k8s
+```
+
+**3. Demonstrar as falhas** (só apertando botões, nesta ordem)
+> Os botões de falha deixam o nó **parado até você apertar "Reviver todos"** — dá tempo de
+> explicar cada coisa com calma. Depois de cada falha, **espere ~5 segundos** (detecção por PING).
+1. **⚡ Rajada de 5 pedidos** → fluxo normal (pedido → seção crítica → escrita na réplica
+   sorteada → replicação → COMMITTED). A grade da direita fica verde = réplicas iguais.
 2. **💥 Derrubar um BACKUP (2.1)** → aperte **Rajada** de novo: continua funcionando sem ele.
-3. **💥 Derrubar o primário (2.3)** → a coroa 👑 muda de nó (eleição); aperte **Rajada**: as
-   escritas vão pro novo primário, nada se perde.
+3. **💥 Derrubar o primário (2.3)** → espere ~5s: a coroa 👑 **muda de nó** (eleição);
+   aperte **Rajada**: as escritas vão pro novo primário, nada se perde.
 4. **❤️ Reviver todos** → os nós voltam e re-sincronizam; a grade volta ao verde.
 
-**3. Resetar** (a qualquer momento, pra recomeçar limpo)
+**4. Resetar** (a qualquer momento, pra recomeçar limpo)
 ```bash
 sudo k3s kubectl -n tp3 rollout restart statefulset/store statefulset/sync
 ```
 
-**4. No fim** — parar a instância na AWS (**Instance state → Stop**) pra não gastar.
+**5. No fim** — parar a instância na AWS (**Instance state → Stop**) pra não gastar.
 
 ---
 

@@ -691,32 +691,35 @@ function renderBanner(snapshot) {
 /* ========================================================================
    AÇÕES (botões)
    ======================================================================== */
-function failStore(i) { fetch(`/store/${i}/fail`, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({duration: 15}) }); addLog(`>>> Injetando OMISSÃO no Store ${i} por 15s`, 'lg-fail'); }
-function crashStore(i) { fetch(`/store/${i}/crash`, { method:'POST' }); addLog(`>>> CRASH injetado no Store ${i} (processo morto)`, 'lg-fail'); }
-function recoverStore(i) { fetch(`/store/${i}/recover`, { method:'POST' }); addLog(`>>> Revivendo Store ${i}`, 'lg-ok'); }
+// Falha por OMISSAO PERSISTENTE: o no fica parado (nao responde ao protocolo)
+// ATE alguem apertar "Reviver todos". Assim a demo e controlavel - o no NAO
+// volta sozinho na hora, dando tempo de ver a eleicao e explicar. (O crash de
+// verdade + auto-recuperacao do Kubernetes fica no comando `kubectl delete pod`.)
+function failStore(i) { fetch(`/store/${i}/fail`, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({duration: 0}) }); }
+function recoverStore(i) { fetch(`/store/${i}/recover`, { method:'POST' }); }
 function matarPrimario() {
   const p = state.primary;
-  if (!p) { addLog('Primário desconhecido — aguarde o próximo poll.', 'lg-info'); return; }
-  addLog(`>>> CENÁRIO 2.3: derrubando o PRIMÁRIO (Store ${p}) com permissão de escrita`, 'lg-fail');
-  crashStore(p);
+  if (!p) { addLog('Primário ainda não definido — espere 1s e tente de novo.', 'lg-info'); return; }
+  addLog(`>>> CASO 2.3: derrubando o PRIMÁRIO (Store ${p}). Aguarde ~5s pela eleição...`, 'lg-fail');
+  failStore(p);
 }
 function matarBackup() {
   const cands = [1,2,3].filter(i => {
     const s = state.stores[String(i)] || {};
     return s.reachable && !s.failed && s.role === 'BACKUP';
   });
-  if (!cands.length) { addLog('Nenhum backup vivo para derrubar.', 'lg-info'); return; }
+  if (!cands.length) { addLog('Nenhum backup disponível para derrubar.', 'lg-info'); return; }
   const alvo = cands[Math.floor(Math.random() * cands.length)];
-  addLog(`>>> CENÁRIO 2.1: derrubando o BACKUP Store ${alvo}`, 'lg-fail');
-  crashStore(alvo);
+  addLog(`>>> CASO 2.1: derrubando o BACKUP Store ${alvo}. As escritas continuam normalmente.`, 'lg-fail');
+  failStore(alvo);
 }
 function omissaoPrimario() {
   const p = state.primary;
-  if (!p) return;
-  addLog(`>>> CENÁRIO 2.2: primário (Store ${p}) em OMISSÃO com pedidos chegando`, 'lg-fail');
+  if (!p) { addLog('Primário ainda não definido — espere 1s.', 'lg-info'); return; }
+  addLog(`>>> CASO 2.2: OMISSÃO no primário (Store ${p}). Aguarde ~5s pela eleição...`, 'lg-fail');
   failStore(p);
 }
-function reviverTodos() { [1,2,3].forEach(i => fetch(`/store/${i}/recover`, { method:'POST' })); addLog('>>> Revivendo todos os nós do Store', 'lg-ok'); }
+function reviverTodos() { [1,2,3].forEach(i => fetch(`/store/${i}/recover`, { method:'POST' })); addLog('>>> Revivendo TODOS os nós — voltam e re-sincronizam o estado.', 'lg-ok'); }
 function rajada() {
   addLog('>>> Rajada: 5 pedidos de clientes aleatórios', 'lg-req');
   for (let k = 0; k < 5; k++) {
