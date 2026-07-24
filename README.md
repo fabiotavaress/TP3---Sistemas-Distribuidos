@@ -1,138 +1,77 @@
 # TP3 — Replicação e Tolerância a Falhas
 
 > **Repositório:** https://github.com/fabiotavaress/TP3---Sistemas-Distribuidos
-
-Sistemas Distribuídos · continuação do TP2. Roda em **Kubernetes** e na **nuvem AWS (EC2)**.
+> Sistemas Distribuídos · continuação do TP2 · roda em **Kubernetes** na **AWS (EC2)**.
 
 ---
 
-## O que foi feito
+## 1. O que nós fizemos
 
-No TP2, quando um nó do **Cluster Sync** entrava na seção crítica, ele apenas *simulava*
-o acesso ao recurso R com um `sleep`. No **TP3 isso virou real**: agora existe um
+No **TP2**, quando um nó do **Cluster Sync** ganhava a vez (seção crítica), ele só *fingia*
+acessar o recurso R com um `sleep`. No **TP3 esse acesso virou real**: criamos um
 **Cluster Store** com **3 réplicas** que guardam o recurso R de verdade, usando o
-**protocolo primário-backup** (Figura 7.19 da proposta) — **sem middleware**, tudo em
-HTTP puro feito à mão.
+**protocolo primário-backup** (Figura 7.19 da proposta), **sem nenhum middleware** — toda a
+comunicação do Store é HTTP puro, feito à mão.
 
-**Como funciona uma escrita:**
-1. Na seção crítica, o nó do Sync **sorteia uma réplica** do Store e envia a escrita.
-2. Se a réplica sorteada não é a primária, ela **repassa ao primário**.
-3. O primário aplica localmente e **replica para os backups**, que confirmam (ACK).
-4. O primário responde `COMMITTED`; o Sync libera e devolve o valor ao cliente.
+**Como uma escrita acontece:**
+1. O nó do Sync, na seção crítica, **sorteia uma das 3 réplicas** e manda a escrita.
+2. Se a réplica sorteada não é a **primária**, ela **repassa para a primária**.
+3. A primária grava e **replica para os backups**, que confirmam (ACK).
+4. A primária responde **COMMITTED** e o cliente recebe o valor gravado.
 
-**Extra pedido em sala:** a cada requisição o **cliente sorteia o recurso** (R1–R5), e a
-cada acesso o Sync **sorteia a réplica** do Store.
+**Extra pedido em sala:** a cada requisição o **cliente sorteia o recurso** (R1–R5) e a cada
+acesso o Sync **sorteia a réplica** — nada é fixo.
 
-**Tolerância a falhas (queda e omissão de nós do Store):**
-- Os 3 nós trocam **PINGs** periódicos; sem resposta no tempo limite → nó considerado morto.
-- **Backup cai (2.1):** as escritas seguem sem ele; ao voltar, ele **re-sincroniza** por snapshot.
-- **Falha com pedido em andamento (2.2):** o Sync toma timeout e **retenta em outra réplica**;
-  a deduplicação por `req_id` impede escrita dupla.
-- **Primário cai (2.3):** os backups fazem uma **eleição** (o menor ID vivo assume); a escrita
-  é retentada no novo primário e o antigo volta como backup.
+**Tolerância a falhas (queda e omissão de nós do Store):** os 3 nós trocam **PINGs**; se um
+para de responder por 4s, é considerado morto.
+- **Backup cai:** as escritas continuam sem ele; ao voltar, ele **re-sincroniza** o estado.
+- **Primário cai:** os backups fazem uma **eleição** (o menor ID vivo assume) e as escritas
+  seguem no novo primário — **nada se perde** (retentativa + deduplicação por `req_id`).
 
-**Arquitetura:** 5 Clientes → 5 nós Cluster Sync (exclusão mútua do TP2, via RabbitMQ) →
-3 nós Cluster Store (primário-backup, HTTP puro). Um **dashboard web** mostra tudo ao vivo.
+**Infra:** os 5 Clientes, 5 Sync, 3 Store, o RabbitMQ e o Dashboard rodam como **pods no
+Kubernetes** (k3s) numa instância **EC2 da AWS**. Se um pod cai, o próprio Kubernetes o
+recria (**self-healing**). Um **dashboard web** mostra tudo ao vivo.
 
 ---
 
-## Roteiro da apresentação (passo a passo)
+## 2. Roteiro para apresentação
 
-Não há tráfego automático: **todos os pedidos vêm do botão "Rajada de 5 pedidos"** (ou de
-clicar nos clientes) — a turma toda pode participar pelo próprio navegador.
+### Antes de começar (ligar)
 
-**1. Ligar** (2 comandos no terminal da EC2)
+No terminal da EC2 (**Connect → EC2 Instance Connect**):
+
 ```bash
-sudo k3s kubectl -n tp3 rollout restart statefulset/store statefulset/sync   # reseta
-sudo k3s kubectl -n tp3 port-forward --address 0.0.0.0 svc/dashboard 5000:5000   # deixa rodando
+sudo k3s kubectl -n tp3 rollout restart statefulset/store statefulset/sync      # reseta limpo
+sudo k3s kubectl -n tp3 port-forward --address 0.0.0.0 svc/dashboard 5000:5000  # deixa rodando
 ```
-Abrir no navegador: **http://SEU_IP_PUBLICO:5000**  *(o IP público está no console EC2)*
+Abrir no navegador: **http://SEU_IP_PUBLICO:5000** *(o IP público está no console EC2)*
 
-**2. Mostrar que roda em Kubernetes** (no terminal)
-```bash
-sudo k3s kubectl -n tp3 get pods         # os 10 pods rodando (rabbitmq, 3 store, 5 sync, dashboard)
-sudo k3s kubectl -n tp3 get statefulset  # identidade fixa: store-0/1/2, sync-0..4
-```
-E a prova mais forte — **self-healing** (o Kubernetes recria um pod sozinho):
-```bash
-sudo k3s kubectl -n tp3 delete pod store-0
-sudo k3s kubectl -n tp3 get pods         # store-0 volta em segundos, recriado pelo k8s
-```
+> Não há tráfego automático: os pedidos só aparecem quando alguém aperta **Rajada de 5
+> pedidos** (ou clica num cliente) — a turma toda pode participar pelo navegador.
 
-**3. Demonstrar as falhas** (só apertando botões, nesta ordem)
-> Os botões de falha deixam o nó **parado até você apertar "Reviver todos"** — dá tempo de
-> explicar cada coisa com calma. Depois de cada falha, **espere ~5 segundos** (detecção por PING).
-1. **⚡ Rajada de 5 pedidos** → fluxo normal (pedido → seção crítica → escrita na réplica
-   sorteada → replicação → COMMITTED). A grade da direita fica verde = réplicas iguais.
-2. **💥 Derrubar um BACKUP (2.1)** → aperte **Rajada** de novo: continua funcionando sem ele.
-3. **💥 Derrubar o primário (2.3)** → espere ~5s: a coroa 👑 **muda de nó** (eleição);
-   aperte **Rajada**: as escritas vão pro novo primário, nada se perde.
-4. **❤️ Reviver todos** → os nós voltam e re-sincronizam; a grade volta ao verde.
+### Na hora (comando/botão → o que falar)
 
-**4. Resetar** (a qualquer momento, pra recomeçar limpo)
+| # | O que fazer | O que falar |
+|---|---|---|
+| 1 | Apontar a tela | "Embaixo os **clientes**, no meio o **Cluster Sync** com o RabbitMQ, em cima o **Cluster Store** com 3 réplicas — a da coroa 👑 é a **primária**." |
+| 2 | Terminal: `sudo k3s kubectl -n tp3 get pods` | "Cada componente é um **pod no Kubernetes**: 3 stores, 5 syncs, o broker e o dashboard, todos gerenciados pelo k8s." |
+| 3 | Botão **⚡ Rajada de 5 pedidos** | "Cada bolinha é uma escrita: o cliente pede, um nó entra na seção crítica, grava numa réplica sorteada, a primária replica pros backups e responde COMMITTED. A grade da direita fica verde = **as 3 réplicas idênticas**." |
+| 4 | Botão **💥 Derrubar um BACKUP (2.1)** e depois **Rajada** | "Derrubei um backup. Repare que as **escritas continuam normalmente** — o sistema não para." |
+| 5 | Botão **💥 Derrubar o primário (2.3)**, esperar ~5s, depois **Rajada** | "Agora derrubei a **primária**. Em ~5s os outros detectam pelo PING e fazem uma **eleição** — a coroa muda de nó. As escritas seguem no novo primário, **nada se perde**." |
+| 6 | Botão **❤️ Reviver todos** | "Os nós que caíram **voltam e re-sincronizam** o estado; a grade fica verde de novo — tudo consistente." |
+| 7 | Terminal: `sudo k3s kubectl -n tp3 delete pod store-0` | "Pra provar o **self-healing**: apaguei um pod na marra e o **Kubernetes recria sozinho** em segundos — sem eu fazer nada." |
+
+### Resetar (recomeçar do zero, a qualquer momento)
 ```bash
 sudo k3s kubectl -n tp3 rollout restart statefulset/store statefulset/sync
 ```
 
-**5. No fim** — parar a instância na AWS (**Instance state → Stop**) pra não gastar.
+### No fim
+Parar a instância na AWS: **Instance state → Stop** (pra não gastar).
 
 ---
 
-## Rodar na EC2 com Kubernetes (primeira instalação)
-
-**1. Na AWS:** crie uma instância **EC2 Ubuntu** (mínimo `t3.medium`) e, no **Security Group**,
-libere as portas de entrada **22** (SSH) e **30500** (dashboard).
-
-**2. Conecte e faça o deploy** (um script instala Docker + k3s, faz o build e sobe tudo):
-
-```bash
-ssh -i sua-chave.pem ubuntu@SEU_IP_PUBLICO
-
-git clone https://github.com/fabiotavaress/TP3---Sistemas-Distribuidos.git tp3
-cd tp3
-chmod +x scripts/*.sh
-./scripts/deploy_ec2_k3s.sh
-```
-
-**3. Abra no navegador:**  `http://SEU_IP_PUBLICO:30500`
-
-Pronto. São **15 pods** no total (RabbitMQ + 3 Store + 5 Sync + 5 Cliente + Dashboard).
-
-### Comandos do dia a dia (Kubernetes)
-
-```bash
-sudo k3s kubectl -n tp3 get pods                 # ver os 15 pods
-sudo k3s kubectl -n tp3 logs -f store-0          # acompanhar um nó do Store
-sudo k3s kubectl -n tp3 delete pod store-0       # DERRUBAR um nó (demonstra a falha)
-sudo k3s kubectl -n tp3 delete -f k8s/           # desmontar tudo
-```
-
-> `delete pod store-0` é a melhor demonstração: o Kubernetes recria o pod sozinho e, no
-> dashboard, dá pra ver a detecção por PING → eleição → re-sincronização. Para forçar a
-> **eleição** com clareza, use o botão **"Omissão no primário (15s)"** do próprio dashboard.
-
----
-
-## Rodar no PC (opcional, sem Kubernetes)
-
-Precisa de Docker. Na pasta do projeto:
-
-```bash
-docker compose up -d --build     # sobe os 15 containers
-# dashboard em http://localhost:5000
-docker compose down              # encerra
-```
-
----
-
-## Estrutura
-
-```
-store_node.py        Cluster Store (novo) — primário-backup, PING, eleição, snapshot
-sync_node.py         Cluster Sync (TP2) — agora escreve de verdade no Store
-client.py            Cliente (TP2) — sorteia o recurso a cada requisição
-dashboard.py         Painel web em tempo real
-k8s/                 Manifests do Kubernetes (StatefulSets)
-scripts/             deploy_ec2_k3s.sh, deploy_kind.sh, etc.
-TP03_Apresentacao.pptx   Slides da apresentação
-```
+<sub>Primeira instalação numa EC2 nova: `git clone` do repositório, depois
+`cd tp3 && chmod +x scripts/*.sh && ./scripts/deploy_ec2_k3s.sh` (instala Docker + k3s e
+sobe tudo). Rodar local sem Kubernetes: `docker compose up -d --build` (dashboard em
+`http://localhost:5000`).</sub>
