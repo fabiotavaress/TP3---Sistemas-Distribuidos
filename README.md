@@ -38,50 +38,30 @@ cada acesso o Sync **sorteia a réplica** do Store.
 
 ## Roteiro da apresentação (passo a passo)
 
-**Antes de começar** (uma vez): instância EC2 **Running**, com as portas **22** e **5000**
-liberadas no Security Group.
+Não há tráfego automático: **todos os pedidos vêm do botão "Rajada de 5 pedidos"** (ou de
+clicar nos clientes) — a turma toda pode participar pelo próprio navegador.
 
-**1. Conectar na EC2**
-- No console AWS: EC2 → sua instância → **Connect** → **EC2 Instance Connect** → **Connect**
-  (abre um terminal no navegador). Ou por SSH: `ssh -i sua-chave.pem ubuntu@IP_PUBLICO`.
-
-**2. Subir o sistema** (se ainda não estiver rodando)
+**1. Ligar** (2 comandos no terminal da EC2)
 ```bash
-cd tp3
-./scripts/deploy_ec2_k3s.sh          # primeira vez: instala tudo e sobe os pods
+sudo k3s kubectl -n tp3 rollout restart statefulset/store statefulset/sync   # reseta
+sudo k3s kubectl -n tp3 port-forward --address 0.0.0.0 svc/dashboard 5000:5000   # deixa rodando
 ```
-Já instalado antes? Só garanta que os pods estão de pé:
-```bash
-sudo k3s kubectl -n tp3 get pods     # esperar todos "Running"
-```
+Abrir no navegador: **http://SEU_IP_PUBLICO:5000**  *(o IP público está no console EC2)*
 
-**3. Abrir o dashboard** — deixe este comando rodando (trava o terminal, é normal):
-```bash
-sudo k3s kubectl -n tp3 port-forward --address 0.0.0.0 svc/dashboard 5000:5000
-```
+**2. Demonstrar** (só apertando botões, na ordem)
+1. **⚡ Rajada de 5 pedidos** → mostra o fluxo normal (pedido → seção crítica → escrita na
+   réplica sorteada → replicação → COMMITTED). A grade da direita fica verde = réplicas iguais.
+2. **💥 Derrubar um BACKUP (2.1)** → aperte **Rajada** de novo: continua funcionando sem ele.
+3. **💥 Derrubar o primário (2.3)** → a coroa 👑 muda de nó (eleição); aperte **Rajada**: as
+   escritas vão pro novo primário, nada se perde.
+4. **❤️ Reviver todos** → os nós voltam e re-sincronizam; a grade volta ao verde.
 
-**4. Descobrir o link** — o IP público está no console EC2 (coluna **Public IPv4 address**,
-ou no rodapé quando a instância está selecionada). Abra no navegador:
-```
-http://SEU_IP_PUBLICO:5000
-```
-
-**5. Demonstrar** (tudo pelos botões do dashboard):
-- **Rajada de 5 pedidos** — mostra o fluxo normal: pedido → seção crítica → escrita na
-  réplica sorteada → replicação → COMMITTED.
-- **Derrubar um BACKUP (2.1)** — o nó fica 💀, as escritas continuam; clique **Reviver** e
-  ele re-sincroniza.
-- **Omissão no primário (2.2/2.3)** — a coroa 👑 muda de nó (eleição), o Sync retenta e
-  nenhuma escrita se perde.
-- A **grade de consistência** (direita) fica verde = as 3 réplicas idênticas.
-
-**6. Resetar o estado** (zerar contadores/escritas para uma nova demo):
+**3. Resetar** (a qualquer momento, pra recomeçar limpo)
 ```bash
 sudo k3s kubectl -n tp3 rollout restart statefulset/store statefulset/sync
 ```
-Espere ~20s e os contadores voltam do zero, com **um único primário**.
 
-**7. No fim** — pare a instância na AWS (**Instance state → Stop**) para não gastar.
+**4. No fim** — parar a instância na AWS (**Instance state → Stop**) pra não gastar.
 
 ---
 

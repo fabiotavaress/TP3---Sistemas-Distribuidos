@@ -21,7 +21,11 @@ metadata:
   namespace: tp3
 spec:
   serviceName: client
-  replicas: 5
+  # replicas: 0 => nenhum cliente automatico. Todos os pedidos vem do
+  # dashboard (botao "Rajada de 5 pedidos" ou clicando nos clientes),
+  # para a demonstracao ser controlada. Para ligar os 5 clientes
+  # automaticos (10-50 pedidos em loop, como no TP2), use replicas: 5.
+  replicas: 0
   podManagementPolicy: Parallel
   selector:
     matchLabels: { app: client }
